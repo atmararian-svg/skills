@@ -1,0 +1,1217 @@
+From b82a682af71fa5288f947971da19564598703163 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 1 Nov 2026 21:26:18 +0000
+Subject: [PATCH 2/2] The fight under a blur, in your own eyes; an exhale with
+ every blow; no hitches; a chapter turn lets the printed matter leave first
+
+- Back to the first person: the camera stays in your eyes, the street breaks into pixels and blurs
+  (lighter than before, so the blows show through), and the fight's animation (his side of it) plays
+  under it: your flurry, the uppercut, him on his back. Every blow jolts the view and is heard
+  with an exhale. The third-person camera and your drawn body are gone.
+- Hitches: no light comes or goes any more (car headlights, the stranger's key light, the laundry
+  light, the Mercedes' lamps are dimmed instead), so the street is never compiled again mid-scene;
+  the street's materials are compiled as the chapter opens; pixel density only goes down;
+  multisampling fixed at start.
+- Chapter turn: his face, his thoughts, the tip and the captions leave through their own pixels
+  (and fade) before the frame is copied and the scene turns.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017Yfam9H7FbQFsBx6yJZ8yW
+---
+ README.md                     |  64 ++++----
+ src/App.tsx                   |  28 ++--
+ src/characters/heroLook.ts    | 279 ----------------------------------
+ src/characters/manRig.ts      |  46 +-----
+ src/render/Stylizer.tsx       |   8 +-
+ src/scenes/car/Mercedes.tsx   |   3 +-
+ src/scenes/city/Cars.tsx      |  19 ++-
+ src/scenes/city/CityScene.tsx |  52 ++++++-
+ src/scenes/city/Stranger.tsx  |  45 +-----
+ src/scenes/city/beats.ts      |  19 ++-
+ src/scenes/city/encounter.ts  |  29 ++--
+ src/scenes/city/episode.ts    |  61 ++------
+ src/ui/Overlay.tsx            |  20 ++-
+ src/ui/brush.ts               |  12 +-
+ src/ui/chapterTransition.ts   |  18 ++-
+ src/ui/textBoxes.ts           |   2 +-
+ 16 files changed, 190 insertions(+), 515 deletions(-)
+ delete mode 100644 src/characters/heroLook.ts
+
+diff --git a/README.md b/README.md
+index bd94256..4f29f80 100644
+--- a/README.md
++++ b/README.md
+@@ -151,9 +151,12 @@ drawn at the design's own size. Captions say which box they belong to (`tone`, `
+   in, ACTION (Medium) and the tip, and under them a black bar 18 px high filling from nothing in
+   5 s; then the tip goes, until it holds again.
+ - Both come in through pixels (an SVG filter per box, 22 px blocks resolving in 0.55 s) and go out
+-  the same way (0.4 s); the words start decoding when the box is 80 % of the way sharp and settle
++  the same way (0.55 s); the words start decoding when the box is 80 % of the way sharp and settle
+   0.55 s after it is. Both keep out of the way while the page asks you to act (ACTION, defend,
+   rev), the letter is open, a chapter turns, during the preloader and the hand-over to the site.
++- At a chapter turn they (and the captions) leave first: the turn waits until they are off the
++  page (at most 1.5 s, `printedGone` in `chapterTransition.ts`) before it copies the frame and
++  the scene goes through its own pixels, so nothing printed is cut off by the copy.
+ - Speech (ATTACKER:, ME:) is still typed in at the bottom of the page, and the thoughts in the car
+   (the monologue) are still typed line by line at the bottom centre.
+ 
+@@ -513,39 +516,30 @@ built from.
+   - **The pixels** (`ui/scenePixels.ts`): the scene-transition effect reused at a steady block
+     size: one canvas over the 3D picture, under everything printed, redrawn from the 3D canvas
+     after every frame. Its look is a pure function of the scroll and the encounter
+-    (`combatLook` in `Overlay.tsx`). A defence no longer uses it (the fight is shown, see below);
+-    only a knockout still breaks the street into coarse, blurred, darkening blocks. At rest the
+-    canvas and its frame watcher are removed.
+-  - **Defended** (you press D): the fight is shown, in full, from a third person's view
+-    (`scenes/city/fight.ts`, timings in `BLOCK`, `beats.ts`):
+-    - the camera steps out of your eyes over the first second (`thirdPerson` in `encounter.ts`,
+-      `fightCamera` in `episode.ts`): back and out to the street side (the shop windows are on the
+-      other), a little above your head, looking down the line of the fight; it drifts in a touch
+-      and jolts with the uppercut;
+-    - his knife hold eases into a guard, then the supplied "rapid punching" animation plays for
+-      both of you: your flurry against his cover (the first blow knocks the knife out of his hand;
+-      it lies where he stood), then an uppercut that throws him onto his back. BAM is printed with
+-      the first blow, POW with the uppercut; each leaves again after 0.9 s, off the action. Every
+-      other blow of the flurry is heard (`hits.mp3`'s lighter hit), the uppercut with the heavy one
+-      and an exhale, then him landing;
+-    - from 5.05 s the camera comes back into your eyes, where the fight left you (a step back from
+-      where you stood: the aftermath frame in `track.ts`), looking down at him and the letter.
++    (`combatLook` in `Overlay.tsx`): nothing while he walks up and threatens; once you have
++    pressed D and ACTION has gone (`BLOCK.veil`, 0.18 s), the blocks grow (to 12 px), blur and
++    darken a little (35%), complete at `BLOCK.blurred` (0.6 s): the fight goes on under it, its
++    shapes moving behind frosted glass. Over the first 0.045 of the aftermath it all resolves to
++    the plain picture. (A knockout still goes dark: 26 px blocks, 80%.) At rest the canvas and its
++    frame watcher are removed.
++  - **Defended** (you press D): you stay in your own eyes, and the fight is played under the blur
++    (`scenes/city/fight.ts`, timings in `BLOCK`, `beats.ts`): his knife hold eases into a guard,
++    then the supplied "rapid punching" animation (his side of it): your flurry against his cover
++    (the first blow knocks the knife out of his hand; it lies where he stood), then an uppercut
++    that throws him onto his back, about 1.7 m behind where he stood. Every blow jolts your view a
++    little, the uppercut more; every blow is heard with your breath forced out with it (the hit
++    from `hits.mp3` and the two recorded exhales taking turns), the uppercut with the heavy hit,
++    then him landing. BAM is printed with the first blow, POW with the uppercut. The camera's hold
++    on him eases off towards the aftermath, so it arrives there without a jump: in your eyes, a
++    step back from where you stood, looking down at him and the letter.
+     - **The animation** (`tools/bakeFight.mjs` → `scenes/city/fightClip.json`, 141 KB): the source
+       is a two-man AdvancedSkeleton rig (FBX); its deform joints are retargeted onto the walking
+       man's Mixamo skeleton (each joint's world rotation moved from the source's bind pose onto the
+       man's rest pose, then swung so each bone points where the source's bone points), 30 fps, for
+       both men, each in his own frame (he starts over its origin, facing the other man 1.55 m
+-      ahead). The thrown man's travel is shortened (55%) so he lands on the sidewalk, about 1.7 m
+-      behind where he stood. `fightRow` samples it between frames; `ManRig.fight` lays a frame over
+-      the pose (both hands in fists), and can blend it in from the pose he is in.
+-    - **You** (`Hero` in `Stranger.tsx`, `characters/heroLook.ts`): the walking man again, built
+-      as you after the owner's portrait: dark hair swept back (a loft fitted to his head), his full
+-      dark beard, warm brown skin, a black T-shirt, dark jeans. Printed in the manner of the
+-      supplied Miles Morales model, without its suit: flat banded colour lit by the street, a hot
+-      red rim from the left and a cold violet one from the right and above, halftone dots in the
+-      transitions, and the print off register (a red and a violet outline shell, each shifted a
+-      couple of pixels, behind the black ink line). You only show while the camera is out of your
+-      eyes, fading in and out through a 4 × 4 ordered dither, so you never pop in front of the lens.
++      ahead). The thrown man's travel is shortened (55%) so he lands on the sidewalk. `fightRow`
++      samples it between frames; `ManRig.fight` lays a frame over the pose (both hands in fists),
++      and can blend it in from the pose he is in.
+   - **Knocked out** is switched off for now (`STRIKES` in `encounter.ts`): he never strikes, and
+     the story waits at the gate until you defend. Its sequence is kept: with `STRIKES` on, the
+     blade reaches you 3.7 s after the prompt, a blow lands, the eyelids close in ragged ink, the
+@@ -1031,12 +1025,18 @@ wipe opens.
+ - Every frame is drawn about four times (the picture, and the ink's normal and depth buffer in
+   three layers), so pixel density is what costs most. It starts at the screen's own density, at
+   most 1.5 on a desktop and 1.25 on touch screens, and `AdaptiveDpr` (`App.tsx`) lowers it in
+-  steps of 0.25 (not below 1) when frames average over 22 ms for 1.5 s, and raises it again on a
+-  fast screen with time to spare.
++  steps of 0.25 (not below 1) when frames average over 22 ms for 2 s.
+ - The composer multisamples (2×) only below 1.25× density; above it the ink lines already cover
+   the edges.
+ - Shadows are drawn every other frame (`ShadowCadence`).
+-- A defence no longer copies the 3D canvas into the pixel layer every frame (the fight is shown).
++- No light ever comes or goes: a light that does changes the number of lights, and every material
++  in the scene is compiled again (a hitch of a good part of a second). Lights are dimmed to 0
++  instead: the moving cars' headlights (a car off the street hides its body only), the Mercedes'
++  headlights, the key light on the stranger, the laundry window's light on him after the fight.
++- `Precompile` (`CityScene.tsx`) compiles every material of the street as the chapter opens,
++  including those of things that only show later (the knife on the pavement, the letter).
++- Pixel density only ever goes down (each change resizes every buffer); multisampling is decided
++  once, as the page starts.
+ 
+ ## Single-file build
+ 
+diff --git a/src/App.tsx b/src/App.tsx
+index 4a79d56..b7ac823 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -92,33 +92,31 @@ const MAX_DPR = Math.min(window.devicePixelRatio || 1, window.matchMedia?.('(poi
+ 
+ /**
+  * Lowers the pixel density a step (0.25, not below 1) when the frames have averaged over 22 ms
+- * for a second and a half, and raises it again when there is room to spare (a fast screen
+- * showing frames well under 14 ms). Hidden tabs and single long frames (a chapter loading) are
+- * not counted.
++ * for two seconds. It only ever goes down: each change resizes every buffer of the frame (a
++ * hitch of its own), so going back up and down again would stutter. Hidden tabs, single long
++ * frames (a chapter loading) and chapter turns are not counted.
+  */
+ function AdaptiveDpr() {
+   const setDpr = useThree((s) => s.setDpr);
+-  const st = useRef({ dpr: MAX_DPR, acc: 0, n: 0, good: 0 });
++  const st = useRef({ dpr: MAX_DPR, acc: 0, n: 0 });
+   useFrame((_, delta) => {
+     const s = st.current;
+-    if (delta > 0.25 || document.hidden || document.documentElement.classList.contains('is-preloading')) return;
++    if (s.dpr <= 1) return;
++    if (delta > 0.25 || document.hidden || chapterTurn.busy || document.documentElement.classList.contains('is-preloading')) {
++      s.acc = 0;
++      s.n = 0;
++      return;
++    }
+     s.acc += delta;
+     s.n++;
+-    if (s.acc < 1.5) return;
++    if (s.acc < 2) return;
+     const ms = (s.acc / s.n) * 1000;
+     s.acc = 0;
+     s.n = 0;
+-    if (ms > 22 && s.dpr > 1) {
++    if (ms > 22) {
+       s.dpr = Math.max(1, s.dpr - 0.25);
+-      s.good = 0;
+       setDpr(s.dpr);
+-    } else if (ms < 14 && s.dpr < MAX_DPR) {
+-      if (++s.good >= 4) {
+-        s.dpr = Math.min(MAX_DPR, s.dpr + 0.25);
+-        s.good = 0;
+-        setDpr(s.dpr);
+-      }
+-    } else s.good = 0;
++    }
+   });
+   return null;
+ }
+diff --git a/src/characters/heroLook.ts b/src/characters/heroLook.ts
+deleted file mode 100644
+index 617d6a5..0000000
+--- a/src/characters/heroLook.ts
++++ /dev/null
+@@ -1,279 +0,0 @@
+-import {
+-  BackSide,
+-  CanvasTexture,
+-  Color,
+-  DoubleSide,
+-  Material,
+-  Mesh,
+-  MeshBasicMaterial,
+-  MeshStandardMaterial,
+-  Object3D,
+-  RepeatWrapping,
+-  SkinnedMesh,
+-  SRGBColorSpace,
+-  Texture,
+-  Vector3,
+-} from 'three';
+-
+-/**
+- * You, as you are seen in the fight (the portrait the owner supplied): dark hair swept back, a
+- * full dark beard, warm brown skin, a black T-shirt, dark jeans. Printed in the "Spider-Verse"
+- * manner of the reference model, without its suit: flat, banded colour lit by the street, a hot
+- * red rim on one side and a cold violet one on the other, coarse halftone in the transitions, and
+- * the print slightly off register (a red and a blue outline, each shifted a little, behind the
+- * black one the page's ink already draws).
+- *
+- * Your body only shows while the camera has stepped back from your eyes; `fade` (0 … 1) brings it
+- * in and out through an ordered dither, so it never pops in front of the lens.
+- */
+-export interface HeroLook {
+-  fade(v: number): void;
+-  dispose(): void;
+-}
+-
+-/** Shared by every material of this look: how much of you shows, and the screen size (for the off-register shift). */
+-const U = {
+-  uFade: { value: 0 },
+-  uPx: { value: [1 / 1280, 1 / 720] as [number, number] },
+-};
+-
+-const DITHER = /* glsl */ `
+-uniform float uFade;
+-float heroBayer(vec2 p) {
+-  vec2 q = mod(floor(p), 4.0);
+-  float i = q.x + q.y * 4.0;
+-  // 4 × 4 ordered dither, thresholds 0..15 / 16
+-  float m[16] = float[16](0., 8., 2., 10., 12., 4., 14., 6., 3., 11., 1., 9., 15., 7., 13., 5.);
+-  return (m[int(i)] + 0.5) / 16.0;
+-}
+-`;
+-
+-// banded colour, the two rims and halftone dots, on top of three's own lighting
+-const SHADE = /* glsl */ `
+-{
+-  if (heroBayer(gl_FragCoord.xy) > uFade) discard;
+-  vec3 alb = max(diffuseColor.rgb, vec3(1e-4));
+-  #ifdef HERO_BEARD
+-  {
+-    // a full, dark beard and moustache painted on the skin, placed on the body as it was bound (metres,
+-    // feet on the ground): along the jaw from the sideburns, over the chin and under it, the lips left bare
+-    vec3 r = vRest;
+-    float ax = abs(r.x);
+-    float y = r.y - HERO_TOP;
+-    float fz = r.z - HERO_CZ;
+-    // the upper edge: across the cheeks, rising to the sideburns at the sides
+-    float cheek = -0.165 + 0.07 * smoothstep(0.025, 0.07, ax);
+-    float noise = (fract(sin(dot(floor(r.xy * 900.0), vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.008;
+-    float beard = (1.0 - smoothstep(cheek - 0.004, cheek + 0.004, y + noise)) // below the cheek line
+-                * smoothstep(-0.285, -0.262, y + noise)                // down onto the throat
+-                * smoothstep(-0.03, -0.005, fz + 0.012 * smoothstep(0.03, 0.07, ax)); // in front of the ears
+-    // the lips: a small bare band across the mouth
+-    float lips = (1.0 - smoothstep(0.022, 0.03, ax)) * smoothstep(-0.2, -0.194, y) * (1.0 - smoothstep(-0.182, -0.176, y));
+-    beard *= 1.0 - lips;
+-    alb = mix(alb, vec3(0.012, 0.009, 0.008), beard);
+-  }
+-  #endif
+-  float aLum = dot(alb, vec3(0.2126, 0.7152, 0.0722));
+-  float lit = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722)) / aLum;
+-  // dots: a 45° screen, the size of the print's own cells
+-  const float c = 0.70710678;
+-  vec2 dp = mat2(c, -c, c, c) * gl_FragCoord.xy / HERO_CELL;
+-  float dotv = length(fract(dp) - 0.5);
+-  // three printed bands of the lit colour; the edges between them in dots
+-  float x = log2(max(lit, 1e-4));
+-  float b1 = clamp((x + 3.2) / 0.9, 0.0, 1.0);
+-  float b2 = clamp((x + 1.4) / 0.9, 0.0, 1.0);
+-  float tone = mix(0.55, 0.8, step(dotv, b1 * 0.72));
+-  tone = mix(tone, 1.0, step(dotv, b2 * 0.72));
+-  vec3 col = alb * tone * HERO_GAIN;
+-  // rims: the hot red from the left of the frame, the cold violet from the right and above
+-  vec3 n = normalize(normal);
+-  vec3 v = normalize(vViewPosition);
+-  float edge = 1.0 - abs(dot(n, v));
+-  float red = smoothstep(0.52, 0.6, edge * (0.55 + 0.75 * max(-n.x, 0.0)));
+-  float blue = smoothstep(0.52, 0.6, edge * (0.3 + 0.75 * max(n.x, 0.0) + 0.3 * max(n.y, 0.0)));
+-  // the inner side of each rim breaks into dots
+-  float redDots = step(dotv, smoothstep(0.38, 0.52, edge * (0.55 + 0.75 * max(-n.x, 0.0))) * 0.6);
+-  float blueDots = step(dotv, smoothstep(0.38, 0.52, edge * (0.3 + 0.75 * max(n.x, 0.0) + 0.3 * max(n.y, 0.0))) * 0.6);
+-  col = mix(col, vec3(0.98, 0.13, 0.22), max(red, redDots * 0.85) * HERO_RIM);
+-  col = mix(col, vec3(0.36, 0.25, 1.0), max(blue, blueDots * 0.8) * HERO_RIM * (1.0 - red));
+-  outgoingLight = col;
+-}
+-#include <opaque_fragment>
+-`;
+-
+-interface HeadMark {
+-  /** Top of the head and the middle of its depth (m, the body as bound, feet on the ground), and the model's scale (m per unit). */
+-  top: number;
+-  cz: number;
+-  scale: number;
+-}
+-
+-/**
+- * Where the head is in the pose the body was bound in (not the pose he stands in, which is lower):
+- * its top and the middle of its depth, from the skin's own vertices, in metres.
+- */
+-function headMark(model: Object3D, scale: number): HeadMark {
+-  let top = -1e9;
+-  const v = new Vector3();
+-  const skins: SkinnedMesh[] = [];
+-  model.traverse((o) => {
+-    const m = o as SkinnedMesh;
+-    if (m.isSkinnedMesh && /body/i.test(`${m.name} ${(m.material as Material).name}`)) skins.push(m);
+-  });
+-  for (const m of skins) {
+-    const p = m.geometry.getAttribute('position');
+-    for (let i = 0; i < p.count; i++) top = Math.max(top, v.fromBufferAttribute(p, i).applyMatrix4(m.bindMatrix).y * scale);
+-  }
+-  let minZ = 1e9;
+-  let maxZ = -1e9;
+-  for (const m of skins) {
+-    const p = m.geometry.getAttribute('position');
+-    for (let i = 0; i < p.count; i++) {
+-      v.fromBufferAttribute(p, i).applyMatrix4(m.bindMatrix).multiplyScalar(scale);
+-      if (v.y < top - 0.12) continue;
+-      minZ = Math.min(minZ, v.z);
+-      maxZ = Math.max(maxZ, v.z);
+-    }
+-  }
+-  return { top, cz: (minZ + maxZ) / 2, scale };
+-}
+-
+-const shaded = (color: string, opts: { gain?: number; rim?: number; map?: Texture | null; normalMap?: MeshStandardMaterial['normalMap']; cards?: boolean; beard?: HeadMark } = {}) => {
+-  const mat = new MeshStandardMaterial({
+-    color,
+-    map: opts.map ?? null,
+-    normalMap: opts.normalMap ?? null,
+-    roughness: 0.85,
+-    metalness: 0,
+-    alphaTest: opts.cards ? 0.4 : 0,
+-  });
+-  if (opts.cards) mat.side = DoubleSide;
+-  if (mat.normalMap) mat.normalScale.set(0.6, 0.6);
+-  // not the street's print: this look has its own
+-  mat.userData.comic = false;
+-  mat.envMapIntensity = 0;
+-  const gain = (opts.gain ?? 1).toFixed(3);
+-  const rim = (opts.rim ?? 1).toFixed(3);
+-  mat.onBeforeCompile = (s) => {
+-    s.uniforms.uFade = U.uFade;
+-    s.defines = { ...(s.defines ?? {}), HERO_CELL: (7 * Math.min(2, window.devicePixelRatio || 1)).toFixed(2), HERO_GAIN: gain, HERO_RIM: rim };
+-    s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>\n${DITHER}`).replace('#include <opaque_fragment>', SHADE);
+-    const b = opts.beard;
+-    if (b) {
+-      Object.assign(s.defines, { HERO_BEARD: 1, HERO_TOP: b.top.toFixed(4), HERO_CZ: b.cz.toFixed(4), HERO_K: b.scale.toFixed(6) });
+-      s.vertexShader = s.vertexShader
+-        .replace('#include <common>', '#include <common>\nvarying vec3 vRest;')
+-        .replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_SKINNING\nvRest = (bindMatrix * vec4(position, 1.0)).xyz * HERO_K;\n#else\nvRest = position * HERO_K;\n#endif');
+-      s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRest;');
+-    }
+-  };
+-  mat.customProgramCacheKey = () => `hero-${gain}-${rim}-${!!opts.cards}-${opts.beard ? 'beard' : ''}`;
+-  return mat;
+-};
+-
+-/** An outline shell behind the mesh: grown along its normals, shifted on the page by `shift` pixels. */
+-const shell = (color: string, grow: number, shift: [number, number], skinned = true) => {
+-  const mat = new MeshBasicMaterial({ color: new Color(color), side: BackSide });
+-  mat.userData.comic = false;
+-  mat.onBeforeCompile = (s) => {
+-    s.uniforms.uFade = U.uFade;
+-    s.uniforms.uPx = U.uPx;
+-    s.vertexShader = s.vertexShader
+-      .replace('#include <common>', `#include <common>\nuniform vec2 uPx;`)
+-      .replace('#include <skinning_vertex>', `#include <skinning_vertex>\ntransformed += normalize(${skinned ? 'objectNormal' : 'normal'}) * ${grow.toFixed(4)};`)
+-      .replace('#include <project_vertex>', `#include <project_vertex>\ngl_Position.xy += vec2(${shift[0].toFixed(2)}, ${shift[1].toFixed(2)}) * 2.0 * uPx * gl_Position.w;`);
+-    s.fragmentShader = s.fragmentShader
+-      .replace('#include <common>', `#include <common>\n${DITHER}`)
+-      .replace('#include <dithering_fragment>', `#include <dithering_fragment>\nif (heroBayer(gl_FragCoord.xy) > uFade) discard;`);
+-  };
+-  mat.customProgramCacheKey = () => `hero-shell-${color}-${grow}-${shift.join(',')}-${skinned}`;
+-  return mat;
+-};
+-
+-/** Hair strands for the swept-back hair (light streaks running back over the head). */
+-const strands = () => {
+-  const c = document.createElement('canvas');
+-  c.width = c.height = 128;
+-  const x = c.getContext('2d')!;
+-  x.fillStyle = '#ffffff';
+-  x.fillRect(0, 0, 128, 128);
+-  for (let k = 0; k < 70; k++) {
+-    const px = (k * 53) % 128;
+-    x.strokeStyle = `rgba(0,0,0,${0.25 + ((k * 31) % 5) * 0.1})`;
+-    x.lineWidth = 1 + ((k * 17) % 3);
+-    x.beginPath();
+-    x.moveTo(px, 0);
+-    x.bezierCurveTo(px + 6, 40, px - 6, 90, px + 3, 128);
+-    x.stroke();
+-  }
+-  const t = new CanvasTexture(c);
+-  t.wrapS = t.wrapT = RepeatWrapping;
+-  t.colorSpace = SRGBColorSpace;
+-  return t;
+-};
+-
+-/**
+- * Dresses the walking man as you: his materials replaced by this look (by what each mesh is),
+- * the hair (`hair`, already fitted to his head) given its own, and the off-register shells added
+- * for the body, clothes and hair.
+- */
+-export function dressHero(model: Object3D, hair: Mesh, scale: number): HeroLook {
+-  const head = headMark(model, scale);
+-  const made: Material[] = [];
+-  const hairMap = strands();
+-  const keep = <T extends Material>(m: T) => (made.push(m), m);
+-  const skin = keep(shaded('#b8673d', { gain: 1.5, beard: head }));
+-  const shells = [keep(shell('#ff1f3d', 0.9, [-2.2, 1.2])), keep(shell('#4b3bff', 0.9, [2.2, -1.2]))];
+-  const shellTargets: SkinnedMesh[] = [];
+-  model.traverse((o) => {
+-    const m = o as SkinnedMesh;
+-    if (!m.isMesh) return;
+-    const src = m.material as MeshStandardMaterial;
+-    const name = `${m.name} ${src.name}`;
+-    let mat: MeshStandardMaterial;
+-    if (/beard|moustache/i.test(name)) mat = keep(shaded('#5a4a44', { map: src.map, cards: true, gain: 1, rim: 0.8 }));
+-    else if (/top/i.test(name)) mat = keep(shaded('#1a1a1d', { gain: 1.6 }));
+-    else if (/bottom/i.test(name)) mat = keep(shaded('#232a3c', { gain: 1.5 }));
+-    else if (/shoe/i.test(name)) mat = keep(shaded('#101010', { gain: 1.2 }));
+-    else if (/eye/i.test(name)) mat = keep(shaded('#d9d4cc', { rim: 0 }));
+-    else mat = skin;
+-    m.material = mat;
+-    m.castShadow = true;
+-    m.receiveShadow = false;
+-    m.frustumCulled = false;
+-    m.userData.ink = /beard|moustache|eye/i.test(name) ? false : 'silhouette';
+-    if (m.isSkinnedMesh && !/beard|moustache|eye/i.test(name)) shellTargets.push(m);
+-  });
+-  const hairMat = keep(shaded('#16100e', { map: hairMap, gain: 1.4, rim: 0.85 }));
+-  hair.material = hairMat;
+-  hair.castShadow = true;
+-  hair.userData.ink = 'silhouette';
+-  // the shells: copies of the skinned meshes that share their geometry and skeleton
+-  for (const m of shellTargets) {
+-    for (const mat of shells) {
+-      const c = new SkinnedMesh(m.geometry, mat);
+-      c.bind(m.skeleton, m.bindMatrix);
+-      c.frustumCulled = false;
+-      c.userData.ink = 'none';
+-      c.renderOrder = -1;
+-      m.parent!.add(c);
+-    }
+-  }
+-  for (const mat of [shell('#ff1f3d', 0.006, [-2.2, 1.2], false), shell('#4b3bff', 0.006, [2.2, -1.2], false)]) {
+-    keep(mat);
+-    const c = new Mesh(hair.geometry, mat);
+-    c.userData.ink = 'none';
+-    hair.add(c);
+-  }
+-  return {
+-    fade(v) {
+-      U.uFade.value = Math.min(1, Math.max(0, v)) * 1.0001;
+-      U.uPx.value = [1 / Math.max(1, window.innerWidth), 1 / Math.max(1, window.innerHeight)];
+-    },
+-    dispose() {
+-      made.forEach((m) => m.dispose());
+-      hairMap.dispose();
+-    },
+-  };
+-}
+diff --git a/src/characters/manRig.ts b/src/characters/manRig.ts
+index 0156063..3223165 100644
+--- a/src/characters/manRig.ts
++++ b/src/characters/manRig.ts
+@@ -21,7 +21,6 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
+ import { paint } from './anatomy';
+ import { loft } from './shapes';
+ import { twoBone } from './feet';
+-import { HeroLook, dressHero } from './heroLook';
+ 
+ /**
+  * The stranger's body: the supplied walking man (a Mixamo-rigged character
+@@ -72,8 +71,6 @@ export interface ManRig {
+    * both hands closed in fists, laid over the pose he is in now by `w` (0 … 1).
+    */
+   fight(row: ArrayLike<number>, names: readonly string[], w?: number): void;
+-  /** Built as you (`buildMan(…, { hero: true })`): how much of you shows (0 … 1). */
+-  hero: HeroLook | null;
+   /** Where the blade's tip is (world). */
+   tip(out: Vector3): Vector3;
+   /** Frees what this build made (its materials, the knit textures, the beanie, scarf and knife copies). */
+@@ -114,7 +111,7 @@ const knit = (shade: number, rib: number) => {
+   return t;
+ };
+ 
+-export function buildMan(gltf: GLTF, knifeGltf: GLTF, opts: { hero?: boolean } = {}): ManRig {
++export function buildMan(gltf: GLTF, knifeGltf: GLTF): ManRig {
+   const root = new Group();
+   // his own copy of the loaded model (skeleton re-bound to the copy's bones). The loaded scene is
+   // shared and cached: built on directly, a second build (the chapter entered again) found it still
+@@ -136,8 +133,7 @@ export function buildMan(gltf: GLTF, knifeGltf: GLTF, opts: { hero?: boolean } =
+   model.scale.setScalar(k);
+ 
+   // printed like everyone in the city: tonal bands and halftone in greys; hair cards without ink lines
+-  // (you are dressed in your own look below)
+-  if (!opts.hero) model.traverse((o) => {
++  model.traverse((o) => {
+     const m = o as SkinnedMesh;
+     if (!m.isMesh) return;
+     const src = m.material as MeshStandardMaterial;
+@@ -271,38 +267,9 @@ export function buildMan(gltf: GLTF, knifeGltf: GLTF, opts: { hero?: boolean } =
+     parent.add(m);
+     return m;
+   };
+-  let heroLook: HeroLook | null = null;
+-  let hairGeo: BufferGeometry | null = null;
+-  if (opts.hero) {
+-    // your hair, swept back: from the hairline over the crown, down the back of the head to the nape
+-    // (the rings' fronts sit inside the head below the hairline, so only the back shows there)
+-    hairGeo = loft(
+-      [
+-        { at: box.top - 0.19, w: hw * 1.45, front: 0.02, back: hd * 0.92 + 0.012, cz: cz - 0.06 },
+-        { at: box.top - 0.125, w: hw * 1.86, front: hd * 0.35, back: hd * 1.04 + 0.018, cz: cz - 0.04 },
+-        { at: box.top - 0.07, w: hw * 2 + 0.024, front: hd * 0.84, back: hd * 1.07 + 0.022, cz: cz - 0.004 },
+-        { at: box.top - 0.028, w: hw * 1.96 + 0.028, front: hd * 0.98 + 0.03, back: hd * 1.06 + 0.022, cz: cz - 0.004 },
+-        { at: box.top + 0.016, w: hw * 1.5, front: hd * 0.74, back: hd * 0.84, cz: cz - 0.018 },
+-      ],
+-      24,
+-    );
+-    const pos = hairGeo.getAttribute('position');
+-    const uv = new Float32Array(pos.count * 2);
+-    for (let i = 0; i < pos.count; i++) {
+-      uv[i * 2] = (Math.atan2(pos.getX(i), pos.getZ(i) - cz) / (Math.PI * 2) + 0.5) * 5;
+-      uv[i * 2 + 1] = pos.getY(i) * 4;
+-    }
+-    hairGeo.setAttribute('uv', new Float32BufferAttribute(uv, 2));
+-    hairGeo.computeVertexNormals();
+-    const hair = new Mesh(hairGeo);
+-    hair.applyMatrix4(new Matrix4().copy(head.matrixWorld).invert());
+-    head.add(hair);
+-    heroLook = dressHero(model, hair, k);
+-  } else {
+-    wear(beanieGeo, head, 70, 6);
+-    wear(scarfGeo, neck, 135, 8);
+-    wear(tail, bone('Spine2'), 135, 8);
+-  }
++  wear(beanieGeo, head, 70, 6);
++  wear(scarfGeo, neck, 135, 8);
++  wear(tail, bone('Spine2'), 135, 8);
+ 
+   // --- the knife: handle across his right palm, blade out past the thumb
+   const hand = bone('RightHand');
+@@ -370,7 +337,6 @@ export function buildMan(gltf: GLTF, knifeGltf: GLTF, opts: { hero?: boolean } =
+     groundKnife,
+     stride: 0,
+     startPhase: 0,
+-    hero: heroLook,
+     stand(phase, walk, upright = 0) {
+       model.position.set(0, 0, 0);
+       model.rotation.set(0, 0, 0);
+@@ -483,8 +449,6 @@ export function buildMan(gltf: GLTF, knifeGltf: GLTF, opts: { hero?: boolean } =
+       mats.forEach((m) => m.dispose());
+       worn.forEach((m) => m.map?.dispose());
+       [beanieGeo, scarfGeo, tail].forEach((g) => g.dispose());
+-      hairGeo?.dispose();
+-      heroLook?.dispose();
+     },
+   };
+   // distance per cycle: the clip walks in place, 1.70 m per cycle at its own size (centimetres); scaled with him
+diff --git a/src/render/Stylizer.tsx b/src/render/Stylizer.tsx
+index 7e43421..68028c6 100644
+--- a/src/render/Stylizer.tsx
++++ b/src/render/Stylizer.tsx
+@@ -1,6 +1,6 @@
+ import { useFrame, useThree } from '@react-three/fiber';
+ import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+-import { useEffect, useMemo, useRef } from 'react';
++import { useEffect, useMemo, useRef, useState } from 'react';
+ import { Color, HalfFloatType, Material, Mesh, MeshBasicMaterial, Object3D } from 'three';
+ import { applyComic } from './comic';
+ import { INK_LAYER, INK_SILHOUETTE_LAYER, InkEffect, OCCLUDER_LAYER, createInkBufferMaterial, createInkTarget } from './ink';
+@@ -30,6 +30,7 @@ export function Stylizer({ version }: { version: unknown }) {
+   const silMat = useMemo(() => createInkBufferMaterial(0.5), []);
+   const effect = useMemo(() => new InkEffect(target.texture), [target]);
+   const vignette = useRef<{ darkness: number } | null>(null);
++  const [msaa] = useState(() => (viewport.dpr > 1.2 ? 0 : 2));
+   useEffect(() => {
+     if (!import.meta.env.DEV) return;
+     (window as unknown as Record<string, unknown>).__ink = effect;
+@@ -98,8 +99,9 @@ export function Stylizer({ version }: { version: unknown }) {
+   }, 0.5);
+ 
+   return (
+-    // (multisampling only on a coarse screen: at 1.25× and over, the ink lines already cover the edges it would smooth)
+-    <EffectComposer multisampling={viewport.dpr > 1.2 ? 0 : 2} frameBufferType={HalfFloatType} enableNormalPass={false}>
++    // (multisampling only on a coarse screen: at 1.25× and over, the ink lines already cover the edges it would smooth;
++    // decided once, as the page starts: changing it later would rebuild the composer)
++    <EffectComposer multisampling={msaa} frameBufferType={HalfFloatType} enableNormalPass={false}>
+       <primitive object={effect} />
+       <Bloom mipmapBlur luminanceThreshold={1.15} luminanceSmoothing={0.1} intensity={0.35} radius={0.55} />
+       <Vignette ref={vignette as never} offset={0.32} darkness={0.6} />
+diff --git a/src/scenes/car/Mercedes.tsx b/src/scenes/car/Mercedes.tsx
+index e394190..44f4645 100644
+--- a/src/scenes/car/Mercedes.tsx
++++ b/src/scenes/car/Mercedes.tsx
+@@ -99,8 +99,8 @@ export function Mercedes() {
+       // forward 20 m and down to the road
+       car.toWorld(tmp.set(p.x * 1.6, -0.6, 22), targets[i].position);
+       targets[i].updateMatrixWorld();
++      // (dark, not hidden: a light coming and going makes every material compile again)
+       s.intensity = 38 * lit;
+-      s.visible = lit > 0.01;
+     });
+ 
+     // the beats' sounds, as the scroll crosses them (going back plays the reverse action)
+@@ -137,7 +137,6 @@ export function Mercedes() {
+           penumbra={0.55}
+           decay={1.6}
+           distance={34}
+-          visible={false}
+         />
+       ))}
+     </>
+diff --git a/src/scenes/city/Cars.tsx b/src/scenes/city/Cars.tsx
+index 4f42470..fe2ba9b 100644
+--- a/src/scenes/city/Cars.tsx
++++ b/src/scenes/city/Cars.tsx
+@@ -46,6 +46,9 @@ function carParts(): { body: BufferGeometry; glass: BufferGeometry; tyres: Buffe
+   return { body, glass, tyres: tb.build()[0].geometry, lights: lb.build()[0].geometry };
+ }
+ 
++/** A moving car's headlight. */
++const HEADLIGHT = 160;
++
+ export function Cars({ active, timeScale }: { active: boolean; timeScale: () => number }) {
+   const m = cityMaterials();
+   const geo = useMemo(carParts, []);
+@@ -73,7 +76,13 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+     traffic.cars.forEach((c, i) => {
+       const g = groups.current[i];
+       if (!g) return;
+-      g.visible = c.on && !(getaway && i === 0);
++      // (a car off the street hides its body, but its headlight stays in the scene, dark: a light
++      // coming and going changes the number of lights, and every material in the street is
++      // compiled again, a visible hitch)
++      const on = c.on && !(getaway && i === 0);
++      for (const ch of g.children) if (!(ch as SpotLight).isLight) ch.visible = on;
++      const sp = spots.current[i];
++      if (sp) sp.intensity = on ? HEADLIGHT : 0;
+       if (!c.on) {
+         passed[i] = false;
+         return;
+@@ -81,13 +90,11 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+       g.position.set(c.box.x, ROAD_Y, c.box.z);
+       g.rotation.y = c.box.yaw;
+       const d = defs[i];
+-      if (!passed[i] && g.visible && c.s / d.lane.length > d.pass.at && audio.running) {
++      if (!passed[i] && on && c.s / d.lane.length > d.pass.at && audio.running) {
+         passed[i] = true;
+         audio.carPass(d.pass.from, d.pass.to, 4.5, 0.22);
+       }
+-      const sp = spots.current[i];
+       if (sp) {
+-        sp.visible = g.visible;
+         target[i].position.set(c.box.x + Math.sin(c.box.yaw) * 12, ROAD_Y, c.box.z + Math.cos(c.box.yaw) * 12);
+         target[i].updateMatrixWorld();
+       }
+@@ -104,7 +111,7 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+         </group>
+       ))}
+       {defs.map((d, i) => (
+-        <group key={`m${i}`} ref={(g) => (groups.current[i] = g)} visible={false}>
++        <group key={`m${i}`} ref={(g) => (groups.current[i] = g)}>
+           <mesh geometry={geo.body} material={m.carBody[d.color]} castShadow />
+           <mesh geometry={geo.glass} material={m.carGlass} />
+           <mesh geometry={geo.tyres} material={m.tyre} />
+@@ -115,7 +122,7 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+             target={target[i]}
+             position={[0, 0.8, 2.3]}
+             color="#f1efe6"
+-            intensity={160}
++            intensity={0}
+             angle={0.45}
+             penumbra={0.5}
+             decay={2}
+diff --git a/src/scenes/city/CityScene.tsx b/src/scenes/city/CityScene.tsx
+index 0b9285d..c2667a2 100644
+--- a/src/scenes/city/CityScene.tsx
++++ b/src/scenes/city/CityScene.tsx
+@@ -1,5 +1,6 @@
+ import { useFrame, useThree } from '@react-three/fiber';
+-import { useEffect, useMemo } from 'react';
++import { useEffect, useMemo, useRef } from 'react';
++import { Object3D } from 'three';
+ import { audio } from '../../audio/AudioDirector';
+ import { createCrowd } from '../../characters/crowd';
+ import { People } from '../../characters/People';
+@@ -13,7 +14,7 @@ import { cityNav } from './nav';
+ import { BEAT, cityTimeScale, disarm, encounter, updateEncounter } from './encounter';
+ import { PORTAL, STATION_FACE_Z } from './layout';
+ import { Skyline } from './Skyline';
+-import { Hero, LaundryLight, Stranger, StrangerBoundary } from './Stranger';
++import { LaundryLight, Stranger, StrangerBoundary } from './Stranger';
+ import { updateLetter } from './letter';
+ import { LetterProp } from './LetterProp';
+ import { Street } from './Street';
+@@ -26,6 +27,50 @@ const timeScale = () => {
+   return cityTimeScale(1) + (1 - cityTimeScale(1)) * smoothstep(clamp(car / 0.3, 0, 1));
+ };
+ 
++/**
++ * Compiles every material of the street once, as the chapter opens, including those of things
++ * that only appear later (the knife on the pavement, the letter, the laundry window's light on
++ * him): otherwise each is compiled the moment it first shows, a hitch right after the fight. Its
++ * marker sits in the city's own group; the hidden parts are shown for the compile and hidden
++ * again at once (nothing is drawn in between).
++ */
++function Precompile({ active }: { active: boolean }) {
++  const { gl, scene, camera } = useThree();
++  const marker = useRef<Object3D>(null);
++  const done = useRef(false);
++  useEffect(() => {
++    if (!active || done.current) return;
++    let raf = 0;
++    let n = 0;
++    // a few frames in, after the print treatment has patched the street's materials
++    const go = () => {
++      if (++n < 4) {
++        raf = requestAnimationFrame(go);
++        return;
++      }
++      const root = marker.current?.parent;
++      if (!root) return;
++      const hidden: Object3D[] = [];
++      root.traverse((o) => {
++        if (!o.visible) {
++          hidden.push(o);
++          o.visible = true;
++        }
++      });
++      try {
++        gl.compile(root, camera, scene);
++      } catch (err) {
++        console.warn('[city] precompile', err);
++      }
++      hidden.forEach((o) => (o.visible = false));
++      done.current = true;
++    };
++    raf = requestAnimationFrame(go);
++    return () => cancelAnimationFrame(raf);
++  }, [active, gl, scene, camera]);
++  return <object3D ref={marker} />;
++}
++
+ /** The city's sound: a quiet bed that thins out and muffles as the stranger closes in. */
+ function Soundscape({ active }: { active: boolean }) {
+   const st = useMemo(() => ({ cutoff: 20000 }), []);
+@@ -111,8 +156,6 @@ export function CityScene({ active }: { active: boolean }) {
+       <People crowd={crowd} scroll={() => localProgress('city')} timeScale={timeScale} enabled={active} />
+       <StrangerBoundary>
+         <Stranger active={active} timeScale={timeScale} />
+-        {/* you, seen from behind in the fight */}
+-        <Hero active={active} />
+       </StrangerBoundary>
+       <LaundryLight active={active} />
+       {/* the letter he dropped, after the fight */}
+@@ -120,6 +163,7 @@ export function CityScene({ active }: { active: boolean }) {
+       {/* the getaway car stands at the kerb from the start; episode 3 is played with it */}
+       <Mercedes />
+       <Soundscape active={active} />
++      <Precompile active={active} />
+     </>
+   );
+ }
+diff --git a/src/scenes/city/Stranger.tsx b/src/scenes/city/Stranger.tsx
+index 9f72907..3641d28 100644
+--- a/src/scenes/city/Stranger.tsx
++++ b/src/scenes/city/Stranger.tsx
+@@ -10,7 +10,7 @@ import { START_PHASE } from '../../characters/walkClip';
+ import { lerpAngle } from '../../characters/crowd';
+ import { smoothstep } from '../../core/math';
+ import { localProgress } from '../../core/timeline';
+-import { BEAT, BLOCK, KO, encounter, encounterAt, thirdPerson } from './encounter';
++import { BEAT, BLOCK, KO, encounter, encounterAt } from './encounter';
+ import { CLIP, CLIP_LEN, FIGHT_BONES, FIGHT_FRAME, fightRow } from './fight';
+ import { EYE, VISITOR_STOP } from './layout';
+ import { ramp, routeAt, routeS, walkPace } from './strangerRoute';
+@@ -70,7 +70,7 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+       rig.groundKnife.visible = lost;
+       rig.groundKnife.position.set(FIGHT_FRAME.guard.x + 0.38, 0.012, FIGHT_FRAME.guard.z + 0.12);
+       rig.groundKnife.rotation.set(0, 2.1, 0);
+-      if (key.current) key.current.visible = fightT < CLIP.land;
++      if (key.current) key.current.intensity = fightT < CLIP.land ? 24 : 0;
+       rig.bone('Hips').getWorldPosition(tmp.a);
+       encounter.stranger.x = tmp.a.x;
+       encounter.stranger.z = tmp.a.z;
+@@ -79,7 +79,7 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+     rig.groundKnife.visible = false;
+     if (view.outcome === 'knockedOut' && (t >= KO.dark || local >= BEAT.aftermath)) {
+       root.visible = false;
+-      if (key.current) key.current.visible = false;
++      if (key.current) key.current.intensity = 0;
+       return;
+     }
+     root.visible = true;
+@@ -136,7 +136,6 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+ 
+     // --- a key light on his face from the shop windows on your right, so you see who it is
+     if (key.current) {
+-      key.current.visible = local > BEAT.noticed - 0.02;
+       key.current.intensity = 24 * smoothstep(ramp(local, BEAT.noticed - 0.02, BEAT.strangerMoves + 0.05));
+       rig.bone('Head').getWorldPosition(keyTarget.position);
+       keyTarget.updateMatrixWorld();
+@@ -155,42 +154,11 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+       <primitive object={rig.root} />
+       <primitive object={rig.groundKnife} />
+       <primitive object={keyTarget} />
+-      <spotLight ref={key} target={keyTarget} color="#efeadf" intensity={0} angle={0.42} penumbra={0.7} decay={2} distance={9} visible={false} />
++      <spotLight ref={key} target={keyTarget} color="#efeadf" intensity={0} angle={0.42} penumbra={0.7} decay={2} distance={9} />
+     </>
+   );
+ }
+ 
+-/**
+- * You, in the fight: the walking man again, built as you (characters/heroLook.ts), standing where
+- * the fight puts you and playing your side of it. You only show while the camera has stepped out
+- * of your eyes (`thirdPerson`), fading in and out through the look's dither.
+- */
+-export function Hero({ active }: { active: boolean }) {
+-  const gltf = suspend(() => loadGlb(manUrl), ['drunkfurt-man']);
+-  const knifeGltf = suspend(() => loadGlb(knifeUrl), ['drunkfurt-knife']);
+-  const rig = useMemo(() => {
+-    const r = buildMan(gltf, knifeGltf, { hero: true });
+-    r.root.name = 'hero';
+-    r.root.visible = false;
+-    if (import.meta.env.DEV) (window as unknown as { __hero: unknown }).__hero = r;
+-    return r;
+-  }, [gltf, knifeGltf]);
+-  useEffect(() => () => rig.dispose(), [rig]);
+-  useFrame(() => {
+-    const local = localProgress('city');
+-    const tp = active ? thirdPerson(local) : 0;
+-    const show = smoothstep(ramp(tp, 0.3, 0.65));
+-    rig.hero?.fade(show);
+-    rig.root.visible = show > 0.001;
+-    if (!rig.root.visible) return;
+-    const t = encounterAt(local).t;
+-    rig.root.position.set(FIGHT_FRAME.puncher.x, 0, FIGHT_FRAME.puncher.z);
+-    rig.root.rotation.y = FIGHT_FRAME.puncher.yaw;
+-    rig.fight(fightRow('puncher', Math.max(0, t - BLOCK.fight)), FIGHT_BONES);
+-  });
+-  return <primitive object={rig.root} />;
+-}
+-
+ /**
+  * The light from the laundry window that falls across the man once he is on
+  * the pavement (from the moment the page goes black, so scrolling back before
+@@ -202,9 +170,10 @@ export function LaundryLight({ active }: { active: boolean }) {
+   useFrame(() => {
+     const t = encounterAt(localProgress('city')).t;
+     const down = encounter.outcome === 'knockedOut' ? KO.fallFrom : BLOCK.land;
+-    if (light.current) light.current.visible = active && t >= down;
++    // (dark rather than hidden: a light coming and going makes every material in the street compile again)
++    if (light.current) light.current.intensity = active && t >= down ? 9 : 0;
+   });
+-  return <pointLight ref={light} position={[9.1, 2.0, -37.2]} color="#f1ece0" intensity={9} distance={7} decay={2} visible={false} />;
++  return <pointLight ref={light} position={[9.1, 2.0, -37.2]} color="#f1ece0" intensity={0} distance={7} decay={2} />;
+ }
+ 
+ /**
+diff --git a/src/scenes/city/beats.ts b/src/scenes/city/beats.ts
+index 8135101..ffd7a78 100644
+--- a/src/scenes/city/beats.ts
++++ b/src/scenes/city/beats.ts
+@@ -31,14 +31,16 @@ export const KO = {
+ } as const;
+ 
+ /**
+- * You defended: the camera steps back out of your eyes to a third person's view, behind you and
+- * to one side, and the fight is played in full (fight.ts): your flurry, the uppercut, him on his
+- * back. Then the camera comes back into your eyes and the story goes on. Seconds of the fight's
+- * own clock after the press (spread over gate → aftermath).
++ * You defended: you stay in your own eyes. ACTION goes first, then (from `veil`) the street
++ * breaks into pixels and blurs (complete by `blurred`); the fight is played under the blur
++ * (fight.ts): your flurry against his cover, an exhale with every blow, then the uppercut that
++ * throws him onto his back. The blur clears on the aftermath. Seconds of the fight's own clock
++ * after the press (spread over gate → aftermath).
+  */
+ export const BLOCK = {
+-  /** The camera is out of your eyes by here (it starts at the press). */
+-  out: 1.0,
++  veil: 0.18,
++  /** The blur is complete. */
++  blurred: 0.6,
+   /** The fight's clip starts (his knife hold eases into his guard before it). */
+   fight: 0.45,
+   /** BAM: the first blow of the flurry (clip 0.70). */
+@@ -47,8 +49,5 @@ export const BLOCK = {
+   hit2: 3.45,
+   /** He is on the pavement (clip 3.82). */
+   land: 4.27,
+-  /** The camera comes back into your eyes over this stretch. */
+-  backFrom: 5.05,
+-  backTo: 6.25,
+-  resolve: 6.5,
++  resolve: 4.9,
+ } as const;
+diff --git a/src/scenes/city/encounter.ts b/src/scenes/city/encounter.ts
+index b05a819..2df8b9d 100644
+--- a/src/scenes/city/encounter.ts
++++ b/src/scenes/city/encounter.ts
+@@ -2,6 +2,7 @@ import { audio } from '../../audio/AudioDirector';
+ import { clamp, smoothstep } from '../../core/math';
+ import { story } from '../../core/store';
+ import { BEAT, BLOCK, KO } from './beats';
++import { CLIP } from './fight';
+ import { Gate, autoplay, gates, globalProgress, localProgress, playProgress, timeline } from '../../core/timeline';
+ 
+ /**
+@@ -17,7 +18,7 @@ import { Gate, autoplay, gates, globalProgress, localProgress, playProgress, tim
+  *   commit → gate           he holds it on you: "Your bag."; time slows to a tenth
+  *   gate                    DEFEND: the story waits for your click
+  *   gate → aftermath        the outcome, mapped onto progress: defended (black,
+- *                           the fight seen from behind you, he is down) or knocked out (hit, fall, darkness)
++ *                           the fight under a blur, he is down) or knocked out (hit, fall, darkness)
+  *   aftermath → 1           afterwards: he is on the pavement, or gone
+  *
+  * Once decided, the page plays the outcome by moving the progress itself
+@@ -88,21 +89,14 @@ export function encounterAt(local: number): EncounterView {
+   if (t >= 0) punch = local < BEAT.aftermath ? encounter.punchAtDecision : 0;
+   let shake = 0;
+   if (t >= 0 && o === 'knockedOut') shake = pulse(t, 0.03, 1.4);
++  // defended: every blow you land jolts your view a little, the uppercut more
++  if (t >= 0 && o === 'blocked' && local < BEAT.aftermath) {
++    for (const c of CLIP.flurry) shake = Math.max(shake, pulse(t, BLOCK.fight + c, 0.55));
++    shake = Math.max(shake, pulse(t, BLOCK.hit2, 1.1));
++  }
+   return { outcome: o, t, punch, shake };
+ }
+ 
+-/**
+- * How far the camera has stepped out of your eyes into the third person's view of the fight
+- * (0 your eyes … 1 behind you, to one side): out from the press, back in before the aftermath.
+- */
+-export function thirdPerson(local: number) {
+-  const v = encounterAt(local);
+-  if (v.outcome !== 'blocked' || v.t < 0 || local >= BEAT.aftermath) return 0;
+-  const out = smoothstep(clamp(v.t / BLOCK.out, 0, 1));
+-  const back = smoothstep(clamp((v.t - BLOCK.backFrom) / (BLOCK.backTo - BLOCK.backFrom), 0, 1));
+-  return out * (1 - back);
+-}
+-
+ /**
+  * Time scale of the city: normal through the approach and the stand-off, a
+  * tenth from the commit through the fight, a hush afterwards.
+@@ -118,9 +112,12 @@ export function cityTimeScale(local: number) {
+ interface Cue { at: number; kind: Parameters<typeof audio.fight>[0] }
+ const CUES: Record<'blocked' | 'knockedOut', Cue[]> = {
+   blocked: [
+-    // the flurry: every other blow that lands is heard (all of them would be a drum roll), an exhale with the first
+-    { at: BLOCK.hit1, kind: 'exhale1' },
+-    ...[0.7, 1.1, 1.43, 1.8, 2.1, 2.4].map((c) => ({ at: BLOCK.fight + c, kind: 'block' as const })),
++    // every blow of the flurry: the hit, and your breath forced out with it (the boxer's "ts"),
++    // the two recorded exhales taking turns
++    ...CLIP.flurry.flatMap((c, i) => [
++      { at: BLOCK.fight + c, kind: 'block' as const },
++      { at: BLOCK.fight + c, kind: (i % 2 ? 'exhale2' : 'exhale1') as Cue['kind'] },
++    ]),
+     // the uppercut, with its exhale, and him landing on the pavement
+     { at: BLOCK.hit2, kind: 'exhale2' },
+     { at: BLOCK.hit2, kind: 'punch' },
+diff --git a/src/scenes/city/episode.ts b/src/scenes/city/episode.ts
+index 27ea6ec..b93ba77 100644
+--- a/src/scenes/city/episode.ts
++++ b/src/scenes/city/episode.ts
+@@ -1,12 +1,10 @@
+-import { Vector3 } from 'three';
+ import { clamp, deg, smoothstep } from '../../core/math';
+ 
+ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+ import type { CameraPose } from '../../core/sequence';
+ import type { EpisodeDef } from '../../episodes/types';
+ import { CityScene } from './CityScene';
+-import { BEAT, BLOCK, KO, encounter, encounterAt, resetEncounter, thirdPerson } from './encounter';
+-import { FIGHT_DIR, FIGHT_FRAME } from './fight';
++import { BEAT, KO, encounter, encounterAt, resetEncounter } from './encounter';
+ import { INVITATION, LETTER, invitationTyped, letter, resetLetter } from './letter';
+ import { strangerGroundAt } from './strangerRoute';
+ import { cityTrack } from './track';
+@@ -57,56 +55,19 @@ function encounterCamera(local: number, pose: CameraPose) {
+     return;
+   }
+   firstPerson(local, pose, v);
+-  // you defended: the camera steps out of your eyes, back and to one side, and watches the fight
+-  const tp = thirdPerson(local);
+-  if (tp > 0) {
+-    fightCamera(v.t, TP);
+-    pose.position.lerp(TP.position, tp);
+-    pose.yaw += Math.atan2(Math.sin(TP.yaw - pose.yaw), Math.cos(TP.yaw - pose.yaw)) * tp;
+-    pose.pitch += (TP.pitch - pose.pitch) * tp;
+-    pose.roll += (TP.roll - pose.roll) * tp;
+-    pose.fov = (pose.fov ?? 50) + (TP.fov! - (pose.fov ?? 50)) * tp;
+-  }
+ }
+ 
+ /**
+- * The third person's view of the fight: behind you and off to the street side (the shop windows
+- * are on the other), a little above your head, looking down the line of the fight to where he
+- * will land. It drifts in a touch over the fight and jolts with the uppercut.
++ * Your own eyes through the approach, the stand-off and (once you defend) the fight under the
++ * blur: kept on him, leaning back from the knife, jolted by every blow. Defended, the hold on him
++ * eases off towards the aftermath, so the camera arrives on the aftermath's frame without a jump.
+  */
+-const TP: CameraPose = { position: new Vector3(), yaw: 0, pitch: 0, roll: 0, fov: 46 };
+-function fightCamera(t: number, out: CameraPose) {
+-  const you = FIGHT_FRAME.puncher;
+-  const d = FIGHT_DIR;
+-  // the street side of you (to your left as you face him)
+-  const lx = d.z;
+-  const lz = -d.x;
+-  const drift = smoothstep(clamp(t / BLOCK.backFrom, 0, 1));
+-  const back = 2.3 - 0.3 * drift;
+-  const side = 3.1 - 0.2 * drift;
+-  out.position.set(you.x - d.x * back + lx * side, 1.8, you.z - d.z * back + lz * side);
+-  const tx = you.x + d.x * 1.5;
+-  const tz = you.z + d.z * 1.5;
+-  const dx = tx - out.position.x;
+-  const dz = tz - out.position.z;
+-  out.yaw = Math.atan2(-dx, -dz);
+-  out.pitch = Math.atan2(1.0 - out.position.y, Math.hypot(dx, dz));
+-  out.roll = 0;
+-  out.fov = 46;
+-  // the uppercut lands: a short, decaying jolt
+-  const age = t - BLOCK.hit2;
+-  if (age > 0) {
+-    const k = Math.exp(-age * 7) * 0.6;
+-    out.position.x += Math.sin(age * 61) * 0.03 * k;
+-    out.position.y += Math.sin(age * 47 + 1) * 0.025 * k;
+-    out.roll += Math.sin(age * 53 + 2) * 0.02 * k;
+-  }
+-}
+-
+-/** Your own eyes through the approach and the stand-off: kept on him, leaning back from the knife. */
+ function firstPerson(local: number, pose: CameraPose, v: ReturnType<typeof encounterAt>) {
+-  if (local < BEAT.noticed - 0.02 || local > BEAT.cut) return;
+-  const w = 0.75 * smoothstep(clamp((local - (BEAT.noticed - 0.02)) / 0.1, 0, 1));
++  const fight = v.outcome === 'blocked' && v.t >= 0;
++  const end = fight ? BEAT.aftermath : BEAT.cut;
++  if (local < BEAT.noticed - 0.02 || local > end) return;
++  const release = fight ? 1 - smoothstep(clamp((local - BEAT.cut) / (BEAT.aftermath - BEAT.cut), 0, 1)) : 1;
++  const w = 0.75 * smoothstep(clamp((local - (BEAT.noticed - 0.02)) / 0.1, 0, 1)) * release;
+   const him = strangerGroundAt(local);
+   const dx = him.x - pose.position.x;
+   const dz = him.z - pose.position.z;
+@@ -119,10 +80,10 @@ function firstPerson(local: number, pose: CameraPose, v: ReturnType<typeof encou
+     pose.pitch += smoothstep(clamp((4 - dist) / 2.5, 0, 1)) * 0.05;
+   }
+   // lean back from the incoming fist
+-  const lean = 0.07 * Math.pow(v.punch, 1.5);
++  const lean = 0.07 * Math.pow(v.punch, 1.5) * release;
+   pose.position.x -= Math.sin(pose.yaw) * -lean;
+   pose.position.z += Math.cos(pose.yaw) * lean;
+-  pose.pitch -= 0.03 * v.punch;
++  pose.pitch -= 0.03 * v.punch * release;
+   // impact jolt: a few centimetres and a fraction of a degree, decaying fast (a function of the fight's own clock)
+   const k = v.shake * v.shake;
+   if (k > 0) {
+diff --git a/src/ui/Overlay.tsx b/src/ui/Overlay.tsx
+index bbeae28..0365c77 100644
+--- a/src/ui/Overlay.tsx
++++ b/src/ui/Overlay.tsx
+@@ -24,24 +24,29 @@ import { PressPrompt } from './PressPrompt';
+ 
+ /** Once you defend: the street breaks into coarse pixels, blurs and darkens, which hides the fight (block px, blur 0 … 1, dark 0 … 1). */
+ const HIDE = { block: 26, blur: 0.85, dark: 0.8 };
++/** Defended: the fight under it still reads, as shapes moving behind frosted glass. */
++const VEIL = { block: 12, blur: 0.8, dark: 0.35 };
+ 
+ /**
+  * How the street looks around the fight: block size (CSS px; 1 = not
+  * pixelated), blur and darkness, as pure functions of the progress and the
+  * encounter, so a scrub, a revisit or a reset can never leave it stuck.
+- * Nothing happens while he only approaches or threatens. Once you defend, the
+- * fight is shown in full (seen from behind you, scenes/city/fight.ts): no
+- * pixels, no blur, no dark. Only a knockout still goes dark this way.
++ * Nothing happens while he only approaches or threatens: it starts when you
++ * press D. Defended, once ACTION has gone (BLOCK.veil) the street breaks into
++ * pixels and blurs, by BLOCK.blurred, before the first blow: the fight goes on
++ * under it, seen through it (VEIL); a knockout goes dark (HIDE). On the
++ * aftermath all of it resolves, back to the plain picture before the letter.
+  */
+ function combatLook(id: string, local: number) {
+   const none = { block: 1, blur: 0, dark: 0 };
+   if (id !== 'city' || local < BEAT.gate) return none;
+   const v = encounterAt(local);
+-  if (v.outcome !== 'knockedOut') return none;
+-  const hide = local < BEAT.aftermath ? smoothstep(clamp(v.t / KO.dark, 0, 1)) : 1;
++  if (!v.outcome) return none;
++  const [from, full, look] = v.outcome === 'blocked' ? [BLOCK.veil, BLOCK.blurred, VEIL] : [0, KO.dark, HIDE];
++  const hide = local < BEAT.aftermath ? smoothstep(clamp((v.t - from) / (full - from), 0, 1)) : 1;
+   const out = local < BEAT.aftermath ? 1 : 1 - smoothstep(clamp((local - BEAT.aftermath) / 0.045, 0, 1));
+   const k = hide * out;
+-  return { block: 1 + (HIDE.block - 1) * k, blur: HIDE.blur * k, dark: HIDE.dark * k };
++  return { block: 1 + (look.block - 1) * k, blur: look.blur * k, dark: look.dark * k };
+ }
+ 
+ /** ACTION is up from the moment he raises the knife until you act: it leaves first, before the pixels and the hits. */
+@@ -162,7 +167,8 @@ export function Overlay() {
+       const { id, local } = locate(p);
+       captions.forEach((c, i) => {
+         const when = capDefs[i].when;
+-        const on = c.dataset.ep === id && local >= Number(c.dataset.from) && local <= Number(c.dataset.to) && (!when || when());
++        // (while a chapter turns, the captions leave before the page is copied: chapterTransition.ts)
++        const on = !chapterTurn.busy && c.dataset.ep === id && local >= Number(c.dataset.from) && local <= Number(c.dataset.to) && (!when || when());
+         c.classList.toggle('is-on', on);
+         const t = typed.get(c);
+         if (t && t.on !== on) {
+diff --git a/src/ui/brush.ts b/src/ui/brush.ts
+index c9d9aa0..908ce1c 100644
+--- a/src/ui/brush.ts
++++ b/src/ui/brush.ts
+@@ -131,7 +131,7 @@ export function drawBrushWipe(ctx: CanvasRenderingContext2D, W: number, H: numbe
+ export function drawHits(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, beats: { hit1: number; hit2: number }) {
+   ctx.clearRect(0, 0, W, H);
+   if (t < 0) return;
+-  // (the dark itself is the street's own pixels, blurred and shaded, under this)
++  // (the blur itself is the street's own pixels, under this)
+   // the design's own words (Figma "fight-scene"), placed as there on a 1920 × 1080 frame scaled to fit:
+   // BAM from the top left with the first hit, POW from the bottom right with the second
+   const k = Math.min(W / FRAME.w, H / FRAME.h);
+@@ -162,13 +162,7 @@ export function drawHits(ctx: CanvasRenderingContext2D, W: number, H: number, t:
+     ctx.rotate(((side * -9 * (1 - travel)) * Math.PI) / 180);
+     const sc = 1.22 - 0.22 * sharpen;
+     ctx.scale(sc, sc);
+-    // the fight is in plain view now: each word leaves again after a moment, off the action
+-    const gone = Math.min(1, Math.max(0, (age - HIT_HOLD) / 0.35));
+-    if (gone >= 1) {
+-      ctx.restore();
+-      return;
+-    }
+-    ctx.globalAlpha = Math.min(1, u / 0.3) * (1 - gone * gone);
++    ctx.globalAlpha = Math.min(1, u / 0.3);
+     ctx.drawImage(img, -w / 2, -h / 2, w, h);
+     ctx.restore();
+   };
+@@ -176,8 +170,6 @@ export function drawHits(ctx: CanvasRenderingContext2D, W: number, H: number, t:
+   word(FIGHT_ART.POW, beats.hit2, 'br');
+ }
+ 
+-/** How long a hit word stays before it leaves (seconds of the fight's clock). */
+-const HIT_HOLD = 0.9;
+ /** How long a hit word takes to come in (seconds of the fight's clock). */
+ const HIT_IN = 0.3;
+ const easeOutBack = (u: number) => {
+diff --git a/src/ui/chapterTransition.ts b/src/ui/chapterTransition.ts
+index cbab5b4..afba8cc 100644
+--- a/src/ui/chapterTransition.ts
++++ b/src/ui/chapterTransition.ts
+@@ -11,7 +11,9 @@ import { hideTitleCard, showTitleCard } from './titleCards';
+  * (core/timeline), this takes over, once, and runs it to the end on the wall
+  * clock:
+  *
+- *  1. the scroll is held where it is and the frame on screen is copied;
++ *  1. the scroll is held where it is; what is printed over the page (his face
++ *     and thoughts, the system's tip) leaves through its own pixels first, and
++ *     only then is the frame on screen copied;
+  *  2. the copy is laid over the page, the stage hidden under it;
+  *  3. the chapter being entered is reset to its beginning (every episode's
+  *     `reset`: the encounter, the getaway, the screen) and the progress cuts to
+@@ -46,6 +48,17 @@ export function resetChapter(n: number) {
+   }
+ }
+ 
++/** Resolves once the text boxes (his face and thoughts, the tip) and the captions are off the page. */
++async function printedGone() {
++  const showing = () =>
++    [...document.querySelectorAll<HTMLElement>('.hero-face, .hero-box, .tip')].some((el) => getComputedStyle(el).visibility !== 'hidden') ||
++    [...document.querySelectorAll<HTMLElement>('.caption')].some((el) => parseFloat(getComputedStyle(el).opacity) > 0.02);
++  if (!showing()) return;
++  while (showing()) await frames(1);
++  // a beat of the plain page before the scene itself turns
++  await frames(6);
++}
++
+ function run(z: PageTurn, forward: boolean) {
+   return turnTo(forward ? z.to : z.back, forward);
+ }
+@@ -77,6 +90,9 @@ async function turnTo(target: number, forward: boolean) {
+   const chapter = chapterOf(locate(target).id);
+   let outgoing: HTMLCanvasElement | null = null;
+   try {
++    // the printed matter goes first, through its own pixels (the overlay hides it while a chapter
++    // turns), so nothing of it is cut off by the copy laid over the page
++    await within(printedGone(), 1500);
+     outgoing = (await within(grabFrame(), 600)) || null;
+     if (outgoing) {
+       outgoing.className = 'chapter-out';
+diff --git a/src/ui/textBoxes.ts b/src/ui/textBoxes.ts
+index d35c094..f1bdc9b 100644
+--- a/src/ui/textBoxes.ts
++++ b/src/ui/textBoxes.ts
+@@ -32,7 +32,7 @@ export interface BoxLine {
+   kicker?: string;
+ }
+ 
+-const PIX = { in: 0.55, out: 0.4, block: 22 };
++const PIX = { in: 0.55, out: 0.55, block: 22 };
+ /** The words decode from 80 % of the way in until this long after the box is sharp (s). */
+ const DECODE_AFTER = 0.55;
+ /** A tip's bar fills in this long (s), then the tip goes. */
+-- 
+2.43.0
+

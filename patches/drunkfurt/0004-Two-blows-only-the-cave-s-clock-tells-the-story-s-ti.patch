@@ -1,0 +1,552 @@
+From e4f3686fe9f5a9b7d91132dfc081d8c5edf796fe Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 1 Nov 2026 23:56:12 +0000
+Subject: [PATCH 4/4] Two blows only; the cave's clock tells the story's time;
+ no sound off the page; the chapter selector closes itself
+
+- The fight plays only the last two blows of the animation, the swing between them quickened so
+  they land 0.28 s apart, each with its exhale (as in the recordings); the second is the uppercut.
+- The rack's clock in the cave read 14:47 (modelled): it shows chapter 3's time, 00:32.
+- Leaving the page (another tab, minimised, another app) fades the sound out and stops the audio;
+  coming back brings it back as it was.
+- The chapter selector closes by itself after taking you to a chapter.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017Yfam9H7FbQFsBx6yJZ8yW
+---
+ README.md                     |  37 ++++++----
+ src/audio/AudioDirector.ts    |  39 ++++++++++-
+ src/scenes/city/Stranger.tsx  |  17 ++---
+ src/scenes/city/beats.ts      |  22 +++---
+ src/scenes/city/encounter.ts  |  15 ++--
+ src/scenes/city/fight.ts      |  25 +++++++
+ src/scenes/home/RoomScene.tsx | 126 +++++++++++++++++++++++++++++++++-
+ src/ui/chapterTuner.ts        |  15 +++-
+ 8 files changed, 250 insertions(+), 46 deletions(-)
+
+diff --git a/README.md b/README.md
+index 89deeb5..691e8e9 100644
+--- a/README.md
++++ b/README.md
+@@ -524,19 +524,19 @@ built from.
+     frame watcher are removed.
+   - **Defended** (you press D): you stay in your own eyes, and the fight is played under the blur
+     (`scenes/city/fight.ts`, timings in `BLOCK`, `beats.ts`): his knife hold eases into a guard,
+-    then the supplied "rapid punching" animation (his side of it): your flurry against his cover
+-    (the first blow knocks the knife out of his hand; it lies where he stood), then an uppercut
+-    that throws him onto his back, about 1.7 m behind where he stood. Your arms throw the blows in
+-    front of you (`Fists` in `Stranger.tsx`: your side of the animation on a second copy of the
+-    man, of which only the arms are drawn, the jacket's sleeves dark, both hands in fists; he is
+-    placed so that his head is where your eyes are). Every blow jolts your view a little, the
+-    uppercut more, and is heard (the lighter hit of `hits.mp3`); the last two land as the
+-    recordings have them, "ts, ts": the two exhales 0.28 s apart, each with its hit (0.24 s
+-    apart), the second on the uppercut; then him landing. BAM is printed with the first blow, POW
+-    with the uppercut. The camera's hold on him eases off towards the aftermath, so it arrives
+-    there without a jump: where you stood, a little lower, looking down at him and the letter.
+-    Episode 3 starts from exactly that frame (`carTrack`), so going on after the invitation does
+-    not move you.
++    then only the last two blows of the supplied "rapid punching" animation: the clip starts a
++    moment before its second-to-last blow (2.15 s), and the swing from that blow into the
++    uppercut is quickened (`clipAt`) so the two land 0.28 s apart, as far apart as the two
++    recorded exhales. The first knocks the knife out of his hand (it lies where he stood); the
++    uppercut throws him onto his back, about 1.7 m behind where he stood. Your arms throw the
++    blows in front of you (`Fists` in `Stranger.tsx`: your side of the animation on a second copy
++    of the man, of which only the arms are drawn, the jacket's sleeves dark, both hands in fists;
++    he is placed so that his head is where your eyes are). Each blow jolts your view, the uppercut
++    more, and is heard as the recordings have it, "ts, ts": an exhale with each hit, the second
++    on the uppercut; then him landing. BAM is printed with the first, POW with the uppercut. The
++    camera's hold on him eases off towards the aftermath, so it arrives there without a jump:
++    where you stood, a little lower, looking down at him and the letter. Episode 3 starts from
++    exactly that frame (`carTrack`), so going on after the invitation does not move you.
+     - **The animation** (`tools/bakeFight.mjs` → `scenes/city/fightClip.json`, 141 KB): the source
+       is a two-man AdvancedSkeleton rig (FBX); its deform joints are retargeted onto the walking
+       man's Mixamo skeleton (each joint's world rotation moved from the source's bind pose onto the
+@@ -1051,6 +1051,17 @@ wipe opens.
+ - Pixel density only ever goes down (each change resizes every buffer); multisampling is decided
+   once, as the page starts.
+ 
++## Small things
++
++- **The rack's clock** in the cave (the model's `leds`, modelled reading 14:47) shows the time the
++  story comes in, chapter 3's 00:32 (`storyClock` in `RoomScene.tsx`): the modelled digits are
++  hidden and a plane on the digits' own face carries the same yellow, slanted segments.
++- **Sound away from the page**: leaving it (another tab, the window minimised, another app on a
++  phone) fades the sound out and stops the audio; coming back brings it back as it was
++  (`AudioDirector.setAway`). The visitor's own sound setting is untouched.
++- **The chapter selector** closes by itself once it has taken you to a chapter, and stays closed
++  under a pointer still resting on it until the pointer leaves (or a new touch, or focus).
++
+ ## Single-file build
+ 
+ `node tools/singlefile.mjs` builds the whole site into `dist-single/drunkfurt.html` (code, models,
+diff --git a/src/audio/AudioDirector.ts b/src/audio/AudioDirector.ts
+index abfac9f..2e35068 100644
+--- a/src/audio/AudioDirector.ts
++++ b/src/audio/AudioDirector.ts
+@@ -128,7 +128,7 @@ class AudioDirector {
+     const ctx = new Ctx();
+     this.ctx = ctx;
+     this.master = ctx.createGain();
+-    this.master.gain.value = this.enabled ? 1 : 0;
++    this.master.gain.value = this.enabled && !this.away ? 1 : 0;
+     this.master.connect(ctx.destination);
+     this.worldFilter = ctx.createBiquadFilter();
+     this.worldFilter.type = 'lowpass';
+@@ -180,8 +180,36 @@ class AudioDirector {
+   /** Mutes or unmutes everything (the visitor's sound preference). */
+   setEnabled(on: boolean) {
+     this.enabled = on;
++    this.level();
++  }
++
++  /**
++   * The visitor left the page (another tab, the window minimised, the phone's app switched) or
++   * came back: the sound fades out and the audio stops running while they are away, and comes
++   * back as it was (only if they had it on). Their own sound preference is untouched.
++   */
++  setAway(away: boolean) {
++    if (away === this.away) return;
++    this.away = away;
++    window.clearTimeout(this.sleep);
++    const ctx = this.ctx;
++    if (!ctx) return;
++    if (away) {
++      this.level(0.04);
++      // once faded, the audio stops altogether (nothing runs or plays in the background)
++      this.sleep = window.setTimeout(() => this.away && void ctx.suspend().catch(() => undefined), 250);
++    } else {
++      void ctx.resume().catch(() => undefined);
++      this.level(0.2);
++    }
++  }
++
++  private away = false;
++  private sleep = 0;
++
++  private level(tau = 0.15) {
+     if (!this.ctx || !this.master) return;
+-    this.master.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, 0.15);
++    this.master.gain.setTargetAtTime(this.enabled && !this.away ? 1 : 0, this.ctx.currentTime, tau);
+   }
+ 
+   get running() {
+@@ -1083,3 +1111,10 @@ class AudioDirector {
+ }
+ 
+ export const audio = new AudioDirector();
++
++// no sound while the visitor is not on the page: leaving it (another tab, the window minimised,
++// another app on a phone) mutes it, coming back brings it back as it was
++const away = () => audio.setAway(document.visibilityState === 'hidden');
++document.addEventListener('visibilitychange', away);
++window.addEventListener('pagehide', () => audio.setAway(true));
++window.addEventListener('pageshow', away);
+diff --git a/src/scenes/city/Stranger.tsx b/src/scenes/city/Stranger.tsx
+index 31b6146..084e8a3 100644
+--- a/src/scenes/city/Stranger.tsx
++++ b/src/scenes/city/Stranger.tsx
+@@ -11,7 +11,7 @@ import { lerpAngle } from '../../characters/crowd';
+ import { smoothstep } from '../../core/math';
+ import { localProgress } from '../../core/timeline';
+ import { BEAT, BLOCK, KO, encounter, encounterAt } from './encounter';
+-import { CLIP, CLIP_LEN, FIGHT_BONES, FIGHT_FRAME, fightRow } from './fight';
++import { CLIP, CLIP_FROM, CLIP_LEN, FIGHT_BONES, FIGHT_FRAME, clipAt, fightRow } from './fight';
+ import { EYE, VISITOR_STOP } from './layout';
+ import { ramp, routeAt, routeS, walkPace } from './strangerRoute';
+ 
+@@ -56,16 +56,17 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+     const root = rig.root;
+ 
+     // the fight (you defended, fight.ts): from the moment its clip starts he is the man taking your
+-    // flurry, then the uppercut, then lying on his back where he landed. Before that (the first
++    // two blows (the last two of the animation), the uppercut, then lying on his back where he landed. Before that (the first
+     // fraction of a second after your press) his knife hold eases into his guard, below.
+-    const fightT = view.outcome === 'blocked' ? (local >= BEAT.aftermath ? CLIP_LEN : t - BLOCK.fight) : -1;
++    // (clip time: only the last two blows are played, fight.ts)
++    const fightT = view.outcome === 'blocked' ? (local >= BEAT.aftermath ? CLIP_LEN : clipAt(t - BLOCK.fight)) : -1;
+     if (view.outcome === 'blocked' && (t >= BLOCK.fight || local >= BEAT.aftermath)) {
+       root.visible = true;
+       root.position.set(FIGHT_FRAME.guard.x, 0, FIGHT_FRAME.guard.z);
+       root.rotation.y = FIGHT_FRAME.guard.yaw;
+       rig.fight(fightRow('guard', fightT), FIGHT_BONES);
+       // the first blow knocks the knife out of his hand; it lies where he stood
+-      const lost = fightT >= CLIP.flurry[0];
++      const lost = t >= BLOCK.hit1 || local >= BEAT.aftermath;
+       rig.knife.visible = !lost;
+       rig.groundKnife.visible = lost;
+       rig.groundKnife.position.set(FIGHT_FRAME.guard.x + 0.38, 0.012, FIGHT_FRAME.guard.z + 0.12);
+@@ -131,8 +132,8 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+     // his eyes on you from the moment he notices you
+     rig.look(CAM, smoothstep(ramp(local, BEAT.noticed, BEAT.strangerMoves)) * lerp(0.6, 0.8, raise));
+ 
+-    // you have pressed D: his hold eases into the guard he takes against your flurry (the clip's first frame)
+-    if (view.outcome === 'blocked' && t >= 0) rig.fight(fightRow('guard', 0), FIGHT_BONES, smoothstep(ramp(t, 0.05, BLOCK.fight)));
++    // you have pressed D: his hold eases into his guard as the clip has it a moment before the second-to-last blow
++    if (view.outcome === 'blocked' && t >= 0) rig.fight(fightRow('guard', CLIP_FROM), FIGHT_BONES, smoothstep(ramp(t, 0.05, BLOCK.fight)));
+ 
+     // --- a key light on his face from the shop windows on your right, so you see who it is
+     if (key.current) {
+@@ -214,7 +215,7 @@ export function Fists({ active }: { active: boolean }) {
+     // where his head is as the fight starts, in his own frame: put there, your eyes are on it
+     rig.root.position.set(0, 0, 0);
+     rig.root.rotation.set(0, 0, 0);
+-    rig.fight(fightRow('puncher', 0), FIGHT_BONES);
++    rig.fight(fightRow('puncher', CLIP_FROM), FIGHT_BONES);
+     const head = rig.bone('Head').getWorldPosition(new Vector3());
+     if (import.meta.env.DEV) (window as unknown as { __fists: unknown }).__fists = rig;
+     return { rig, made, head };
+@@ -242,7 +243,7 @@ export function Fists({ active }: { active: boolean }) {
+     const hz = -head.x * sn + head.z * c;
+     rig.root.position.set(CAM.x - hx, CAM.y - head.y, CAM.z - hz);
+     rig.root.rotation.y = f.yaw;
+-    rig.fight(fightRow('puncher', Math.max(0, v.t - BLOCK.fight)), FIGHT_BONES);
++    rig.fight(fightRow('puncher', clipAt(v.t - BLOCK.fight)), FIGHT_BONES);
+   });
+   return <primitive object={built.rig.root} />;
+ }
+diff --git a/src/scenes/city/beats.ts b/src/scenes/city/beats.ts
+index ffd7a78..ae6b80b 100644
+--- a/src/scenes/city/beats.ts
++++ b/src/scenes/city/beats.ts
+@@ -32,22 +32,22 @@ export const KO = {
+ 
+ /**
+  * You defended: you stay in your own eyes. ACTION goes first, then (from `veil`) the street
+- * breaks into pixels and blurs (complete by `blurred`); the fight is played under the blur
+- * (fight.ts): your flurry against his cover, an exhale with every blow, then the uppercut that
+- * throws him onto his back. The blur clears on the aftermath. Seconds of the fight's own clock
+- * after the press (spread over gate → aftermath).
++ * breaks into pixels and blurs (complete by `blurred`); under the blur two blows land (fight.ts:
++ * the last two of the animation, 0.28 s apart, each with its exhale), the second the uppercut
++ * that throws him onto his back. The blur clears on the aftermath. Seconds of the fight's own
++ * clock after the press (spread over gate → aftermath).
+  */
+ export const BLOCK = {
+   veil: 0.18,
+   /** The blur is complete. */
+-  blurred: 0.6,
++  blurred: 0.55,
+   /** The fight's clip starts (his knife hold eases into his guard before it). */
+   fight: 0.45,
+-  /** BAM: the first blow of the flurry (clip 0.70). */
+-  hit1: 1.15,
+-  /** POW: the uppercut (clip 3.00). */
+-  hit2: 3.45,
++  /** BAM: the second-to-last blow (fight.ts: clip 2.40). */
++  hit1: 0.7,
++  /** POW: the uppercut, 0.28 s later (clip 3.00). */
++  hit2: 0.98,
+   /** He is on the pavement (clip 3.82). */
+-  land: 4.27,
+-  resolve: 4.9,
++  land: 1.8,
++  resolve: 3.0,
+ } as const;
+diff --git a/src/scenes/city/encounter.ts b/src/scenes/city/encounter.ts
+index 0da0649..bb32be4 100644
+--- a/src/scenes/city/encounter.ts
++++ b/src/scenes/city/encounter.ts
+@@ -2,7 +2,6 @@ import { audio } from '../../audio/AudioDirector';
+ import { clamp, smoothstep } from '../../core/math';
+ import { story } from '../../core/store';
+ import { BEAT, BLOCK, KO } from './beats';
+-import { CLIP } from './fight';
+ import { Gate, autoplay, gates, globalProgress, localProgress, playProgress, timeline } from '../../core/timeline';
+ 
+ /**
+@@ -89,10 +88,9 @@ export function encounterAt(local: number): EncounterView {
+   if (t >= 0) punch = local < BEAT.aftermath ? encounter.punchAtDecision : 0;
+   let shake = 0;
+   if (t >= 0 && o === 'knockedOut') shake = pulse(t, 0.03, 1.4);
+-  // defended: every blow you land jolts your view a little, the uppercut more
++  // defended: each of the two blows jolts your view, the uppercut more
+   if (t >= 0 && o === 'blocked' && local < BEAT.aftermath) {
+-    for (const c of CLIP.flurry) shake = Math.max(shake, pulse(t, BLOCK.fight + c, 0.55));
+-    shake = Math.max(shake, pulse(t, BLOCK.hit2, 1.1));
++    shake = Math.max(pulse(t, BLOCK.hit1, 0.6), pulse(t, BLOCK.hit2, 1.1));
+   }
+   return { outcome: o, t, punch, shake };
+ }
+@@ -112,12 +110,9 @@ export function cityTimeScale(local: number) {
+ interface Cue { at: number; kind: Parameters<typeof audio.fight>[0] }
+ const CUES: Record<'blocked' | 'knockedOut', Cue[]> = {
+   blocked: [
+-    // the flurry: the hit of each blow
+-    ...CLIP.flurry.map((c) => ({ at: BLOCK.fight + c, kind: 'block' as const })),
+-    // the last two blows: the two recorded exhales ("ts, ts") each with its hit, as far apart as
+-    // they are in the recordings (exhales 0.28 s, hits 0.24 s), the second on the uppercut
+-    { at: BLOCK.hit2 - 0.28, kind: 'exhale1' },
+-    { at: BLOCK.hit2 - 0.24, kind: 'block' },
++    // the two blows, "ts, ts": each with its exhale, 0.28 s apart, the second the uppercut; then him landing
++    { at: BLOCK.hit1, kind: 'exhale1' },
++    { at: BLOCK.hit1, kind: 'block' },
+     { at: BLOCK.hit2, kind: 'exhale2' },
+     { at: BLOCK.hit2, kind: 'punch' },
+     { at: BLOCK.land, kind: 'fall' },
+diff --git a/src/scenes/city/fight.ts b/src/scenes/city/fight.ts
+index 2c1dc9c..f030605 100644
+--- a/src/scenes/city/fight.ts
++++ b/src/scenes/city/fight.ts
+@@ -26,6 +26,31 @@ export const CLIP = {
+   land: 3.82,
+ } as const;
+ 
++/**
++ * Only the last two blows of the sequence are played: the clip starts a moment before the
++ * second-to-last blow, and the swing from it into the uppercut is quickened so the two land
++ * as far apart as the two recorded exhales (0.28 s); after the uppercut it runs at its own pace.
++ */
++export const CLIP_FROM = 2.15;
++/** The two blows (clip time), and how far apart they land in the fight (s). */
++const BLOW_A = 2.4;
++const BLOW_B = CLIP.uppercut;
++export const BLOW_GAP = 0.28;
++/** Fight time (s from the clip's start in the fight) → clip time. */
++export function clipAt(ft: number) {
++  const a = BLOW_A - CLIP_FROM;
++  if (ft <= a) return CLIP_FROM + Math.max(0, ft);
++  if (ft <= a + BLOW_GAP) return BLOW_A + ((ft - a) / BLOW_GAP) * (BLOW_B - BLOW_A);
++  return Math.min(CLIP_LEN, BLOW_B + (ft - a - BLOW_GAP));
++}
++/** Clip time → fight time (for timing things to the clip's moments). */
++export function fightAt(clipT: number) {
++  const a = BLOW_A - CLIP_FROM;
++  if (clipT <= BLOW_A) return clipT - CLIP_FROM;
++  if (clipT <= BLOW_B) return a + ((clipT - BLOW_A) / (BLOW_B - BLOW_A)) * BLOW_GAP;
++  return a + BLOW_GAP + (clipT - BLOW_B);
++}
++
+ /** Your eyes before the fight (layout.VISITOR_STOP at EYE): the line from them to him sets where you stand. */
+ const EYES: [number, number] = [6.5, -34];
+ const dx = STRANGER_STOP[0] - EYES[0];
+diff --git a/src/scenes/home/RoomScene.tsx b/src/scenes/home/RoomScene.tsx
+index 91dd456..9fca056 100644
+--- a/src/scenes/home/RoomScene.tsx
++++ b/src/scenes/home/RoomScene.tsx
+@@ -4,11 +4,13 @@ import { suspend } from 'suspend-react';
+ import {
+   BoxGeometry,
+   BufferGeometry,
++  CanvasTexture,
+   Color,
+   DoubleSide,
+   Group,
+   LinearMipmapLinearFilter,
+   Material,
++  Matrix4,
+   Mesh,
+   MeshBasicMaterial,
+   MeshStandardMaterial,
+@@ -28,7 +30,8 @@ import { story } from '../../core/store';
+ import { Gate, gates, localProgress } from '../../core/timeline';
+ import { input } from '../../player/input';
+ import { postFx } from '../../render/Stylizer';
+-import { DISPLAY, HOME_BEAT, ROOM_LIFT } from './layout';
++import { DISPLAY, HOME_BEAT, ROOM_LIFT, SEAT_EYE } from './layout';
++import { CHAPTERS } from '../../core/chapters';
+ import { SCREEN_LINKS, WHITE_AT, WHITE_FROM, flyAt, monitor, overAbout, pick, resetMonitor, solidAt } from './monitor';
+ import { buildWallScreens } from './roomScreens';
+ import { TOUCH } from '../../ui/touch';
+@@ -189,6 +192,8 @@ function buildRoom(gltf: GLTF) {
+     // the floor is one big plane: its edges are not drawing lines
+     if (name === 'material') mesh.userData.ink = false;
+   });
++  // the clock on the rack, left of the chair: the model's own LEDs read 14:47; it shows the story's time instead
++  const clock = storyClock(model, root);
+   screens.sort((a, b) => a.name.localeCompare(b.name));
+   // the text about the author goes on the screen right of the big display, low (screen_13), in view from the chair
+   const wall = buildWallScreens(screens.length, screens.findIndex((s) => s.name === ABOUT_SCREEN));
+@@ -202,11 +207,130 @@ function buildRoom(gltf: GLTF) {
+     trimmed.forEach((g) => g.dispose());
+     steel.dispose();
+     led.dispose();
++    clock?.dispose();
+   };
+   const about = screens.find((s) => s.name === ABOUT_SCREEN) ?? null;
+   return { root, wall, dispose, about };
+ }
+ 
++/** Seven-segment digits: which of the segments a b c d e f g each digit lights. */
++const SEGMENTS: Record<string, string> = { '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcfgd' };
++
++/**
++ * The rack's clock (the model's 'leds', the time 14:47 modelled in segments) shows the time the
++ * story comes into the cave (chapter 3, core/chapters.ts) instead: the modelled digits are hidden
++ * and a plane in their place carries the same yellow segments, slanted, drawn on a canvas. The
++ * plane spans the digits' own extent, faces the chair (the box's axis most towards it) and reads
++ * upright from it.
++ */
++function storyClock(model: Object3D, root: Group) {
++  const leds = model.getObjectByName('leds') as Mesh | undefined;
++  if (!leds) return null;
++  const time = CHAPTERS.find((c) => c.number === 3)?.time ?? '00:32';
++  root.updateMatrixWorld(true);
++  leds.geometry.computeBoundingBox();
++  const box = leds.geometry.boundingBox!;
++  // the box's centre and its three axes in the world, the thinnest one the display's normal
++  const centre = box.getCenter(new Vector3()).applyMatrix4(leds.matrixWorld);
++  // the digits' own plane: the line they are read along (from the vertex furthest one way along the
++  // box's longest axis to the one furthest the other way), level, and the normal across it towards
++  // the chair (the display is turned, so the box's own axes do not lie in it)
++  const pos = leds.geometry.getAttribute('position');
++  const pts = Array.from({ length: pos.count }, (_, i) => new Vector3().fromBufferAttribute(pos, i).applyMatrix4(leds.matrixWorld));
++  const size = box.getSize(new Vector3());
++  const long = size.x >= size.y && size.x >= size.z ? 0 : size.y >= size.z ? 1 : 2;
++  const along = new Vector3().setComponent(long, 1).transformDirection(leds.matrixWorld);
++  let lo = pts[0];
++  let hi = pts[0];
++  for (const p of pts) {
++    if (p.dot(along) < lo.dot(along)) lo = p;
++    if (p.dot(along) > hi.dot(along)) hi = p;
++  }
++  const upW = new Vector3(0, 1, 0);
++  const n = new Vector3().subVectors(hi, lo).setY(0).normalize().cross(upW).normalize();
++  const toEye = SEAT_EYE.clone().sub(centre);
++  if (n.dot(toEye) < 0) n.negate();
++  const right = new Vector3().crossVectors(upW, n).normalize();
++  // its size and centre: the digits' extent along it, a little margin round them
++  let r0 = Infinity, r1 = -Infinity, u0 = Infinity, u1 = -Infinity, d1 = -Infinity;
++  for (const p of pts) {
++    const q = p.clone().sub(centre);
++    r0 = Math.min(r0, q.dot(right));
++    r1 = Math.max(r1, q.dot(right));
++    u0 = Math.min(u0, q.dot(upW));
++    u1 = Math.max(u1, q.dot(upW));
++    d1 = Math.max(d1, q.dot(n));
++  }
++  const w = (r1 - r0) * 1.04;
++  const h = (u1 - u0) * 1.08;
++  centre.addScaledVector(right, (r0 + r1) / 2).addScaledVector(upW, (u0 + u1) / 2).addScaledVector(n, d1);
++  const cw = 512;
++  const ch = Math.max(64, Math.round((cw * h) / w));
++  const el = document.createElement('canvas');
++  el.width = cw;
++  el.height = ch;
++  const c = el.getContext('2d')!;
++  c.fillStyle = '#e2bd3a';
++  // 4 digits and a colon, slanted like the modelled ones
++  const pad = ch * 0.08;
++  const dh = ch - pad * 2;
++  const dw = dh * 0.52;
++  const t = dh * 0.15;
++  const gap = dw * 0.28;
++  const colonW = dw * 0.45;
++  const total = dw * 4 + gap * 3 + colonW + gap;
++  let x = (cw - total) / 2;
++  const seg = (k: string, ox: number) => {
++    const half = dh / 2;
++    const r: Record<string, [number, number, number, number]> = {
++      a: [ox + t * 0.6, pad, dw - t * 1.2, t],
++      g: [ox + t * 0.6, pad + half - t / 2, dw - t * 1.2, t],
++      d: [ox + t * 0.6, pad + dh - t, dw - t * 1.2, t],
++      f: [ox, pad + t * 0.6, t, half - t * 1.1],
++      b: [ox + dw - t, pad + t * 0.6, t, half - t * 1.1],
++      e: [ox, pad + half + t * 0.5, t, half - t * 1.1],
++      c: [ox + dw - t, pad + half + t * 0.5, t, half - t * 1.1],
++    };
++    const [rx, ry, rw, rh] = r[k];
++    c.fillRect(rx, ry, rw, rh);
++  };
++  c.save();
++  // the slant: the tops lean to the right
++  c.setTransform(1, 0, -0.14, 1, ch * 0.07, 0);
++  for (const chr of time) {
++    if (chr === ':') {
++      c.fillRect(x + colonW / 2 - t / 2, pad + dh * 0.28, t, t);
++      c.fillRect(x + colonW / 2 - t / 2, pad + dh * 0.66, t, t);
++      x += colonW + gap;
++      continue;
++    }
++    for (const k of SEGMENTS[chr] ?? '') seg(k, x);
++    x += dw + gap;
++  }
++  c.restore();
++  const tex = new CanvasTexture(el);
++  tex.colorSpace = SRGBColorSpace;
++  tex.anisotropy = 4;
++  const mat = new MeshBasicMaterial({ map: tex, color: new Color('#ffffff').multiplyScalar(0.85), transparent: true, toneMapped: false, depthWrite: false });
++  mat.userData.comic = false;
++  const plane = new Mesh(new PlaneGeometry(w, h), mat);
++  plane.name = 'story-clock';
++  plane.userData.ink = 'none';
++  // in the world: its basis, a hair in front of the digits' face, then into the room's frame
++  plane.matrix.makeBasis(right, upW, n).setPosition(centre.clone().addScaledVector(n, 0.001));
++  plane.matrix.premultiply(new Matrix4().copy(root.matrixWorld).invert());
++  plane.matrix.decompose(plane.position, plane.quaternion, plane.scale);
++  root.add(plane);
++  leds.visible = false;
++  return {
++    dispose() {
++      tex.dispose();
++      mat.dispose();
++      plane.geometry.dispose();
++    },
++  };
++}
++
+ /**
+  * The large display in place of the six central screens: a flat 16:9 panel in
+  * a dark housing on a VESA plate, an arm back to the middle pillar and a cross
+diff --git a/src/ui/chapterTuner.ts b/src/ui/chapterTuner.ts
+index 0240e08..3915a61 100644
+--- a/src/ui/chapterTuner.ts
++++ b/src/ui/chapterTuner.ts
+@@ -257,6 +257,8 @@ export function mountChapterTuner(): () => void {
+   let touchOpen = false;
+   let focused = false;
+   let open = false;
++  /** It has just taken you to a chapter: closed until the pointer leaves it (or a new touch). */
++  let dismissed = false;
+   let openK = 0;
+   /** The page behind: dims and pixelates on its own, slower curve (in over 0.8 s, out over 0.5 s). */
+   let backK = 0;
+@@ -360,7 +362,8 @@ export function mountChapterTuner(): () => void {
+   };
+   const setOpen = () => {
+     // (a phone's selector is always open: it is small and along the bottom, with nothing to reveal)
+-    open = phone || hover || touchOpen || focused || !!drag || !!wheel;
++    // (once it has taken you to a chapter it closes, and stays closed under a pointer still resting on it)
++    open = phone || (!dismissed && (hover || touchOpen || focused)) || !!drag || !!wheel;
+     root.classList.toggle('is-open', open);
+   };
+   const commit = (n: number) => {
+@@ -370,6 +373,12 @@ export function mountChapterTuner(): () => void {
+     }
+     held = { pos: n, until: performance.now() + 6000 };
+     goToChapter(n);
++    // done: it closes by itself (nothing to click away); it opens again once the pointer has left it and comes back
++    dismissed = true;
++    touchOpen = false;
++    focused = false;
++    if (root.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
++    setOpen();
+   };
+ 
+   // --- pointer: open, drag, the strip ---------------------------------------------------------
+@@ -381,12 +390,14 @@ export function mountChapterTuner(): () => void {
+   const leave = (e: PointerEvent) => {
+     if (e.pointerType === 'touch') return;
+     hover = false;
++    dismissed = false;
+     setOpen();
+   };
+   const down = (e: PointerEvent) => {
+     if (story.getState().phase !== 'ready') return;
+     if (e.pointerType === 'touch' && !open && !phone) {
+       // on a touch screen the first tap opens it
++      dismissed = false;
+       touchOpen = true;
+       showActiveTab();
+       setOpen();
+@@ -480,6 +491,8 @@ export function mountChapterTuner(): () => void {
+     }
+   };
+   const focusIn = () => {
++    // (focus comes by the visitor's own hand, the keyboard or a click: it opens it again)
++    dismissed = false;
+     focused = true;
+     setOpen();
+   };
+-- 
+2.43.0
+

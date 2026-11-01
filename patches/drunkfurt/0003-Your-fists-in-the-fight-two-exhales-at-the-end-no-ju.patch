@@ -1,0 +1,594 @@
+From 785fc380fa399c31b275cb5e02925dd7f8325858 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 1 Nov 2026 22:50:57 +0000
+Subject: [PATCH 3/3] Your fists in the fight, two exhales at the end, no jump
+ after the letter, the next chapter compiled ahead
+
+- Your arms throw the blows in front of you under the blur (your side of the animation, only the
+  arms drawn, dark sleeves, hands in fists); fists fixed for both men (the thumb folds in).
+- The exhales only on the last two blows, as far apart as in the recordings, the second on the
+  uppercut; the flurry keeps its hits.
+- The aftermath frame and episode 3's first frame are the same, so going on after the invitation
+  no longer throws you to the side.
+- Prewarm: the next world's shaders are compiled while the current one plays, with its own lights
+  (the loading veil's compile mixed every world's lights, so the turn into the city recompiled
+  everything); the ink buffer is one pass instead of three. Lighter blur so the arms read.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017Yfam9H7FbQFsBx6yJZ8yW
+---
+ README.md                     | 33 +++++++++----
+ src/App.tsx                   | 54 ++++++++++++++++++++-
+ src/characters/manRig.ts      | 11 +++--
+ src/render/Stylizer.tsx       | 75 +++++++++++++++++++----------
+ src/scenes/car/episode.ts     |  4 +-
+ src/scenes/city/CityScene.tsx | 52 ++------------------
+ src/scenes/city/Stranger.tsx  | 90 ++++++++++++++++++++++++++++++++++-
+ src/scenes/city/encounter.ts  | 13 +++--
+ src/scenes/city/track.ts      |  8 ++--
+ src/ui/Overlay.tsx            |  2 +-
+ 10 files changed, 238 insertions(+), 104 deletions(-)
+
+diff --git a/README.md b/README.md
+index 4f29f80..89deeb5 100644
+--- a/README.md
++++ b/README.md
+@@ -517,8 +517,8 @@ built from.
+     size: one canvas over the 3D picture, under everything printed, redrawn from the 3D canvas
+     after every frame. Its look is a pure function of the scroll and the encounter
+     (`combatLook` in `Overlay.tsx`): nothing while he walks up and threatens; once you have
+-    pressed D and ACTION has gone (`BLOCK.veil`, 0.18 s), the blocks grow (to 12 px), blur and
+-    darken a little (35%), complete at `BLOCK.blurred` (0.6 s): the fight goes on under it, its
++    pressed D and ACTION has gone (`BLOCK.veil`, 0.18 s), the blocks grow (to 9 px), blur and
++    darken a little (30%), complete at `BLOCK.blurred` (0.6 s): the fight goes on under it, its
+     shapes moving behind frosted glass. Over the first 0.045 of the aftermath it all resolves to
+     the plain picture. (A knockout still goes dark: 26 px blocks, 80%.) At rest the canvas and its
+     frame watcher are removed.
+@@ -526,12 +526,17 @@ built from.
+     (`scenes/city/fight.ts`, timings in `BLOCK`, `beats.ts`): his knife hold eases into a guard,
+     then the supplied "rapid punching" animation (his side of it): your flurry against his cover
+     (the first blow knocks the knife out of his hand; it lies where he stood), then an uppercut
+-    that throws him onto his back, about 1.7 m behind where he stood. Every blow jolts your view a
+-    little, the uppercut more; every blow is heard with your breath forced out with it (the hit
+-    from `hits.mp3` and the two recorded exhales taking turns), the uppercut with the heavy hit,
+-    then him landing. BAM is printed with the first blow, POW with the uppercut. The camera's hold
+-    on him eases off towards the aftermath, so it arrives there without a jump: in your eyes, a
+-    step back from where you stood, looking down at him and the letter.
++    that throws him onto his back, about 1.7 m behind where he stood. Your arms throw the blows in
++    front of you (`Fists` in `Stranger.tsx`: your side of the animation on a second copy of the
++    man, of which only the arms are drawn, the jacket's sleeves dark, both hands in fists; he is
++    placed so that his head is where your eyes are). Every blow jolts your view a little, the
++    uppercut more, and is heard (the lighter hit of `hits.mp3`); the last two land as the
++    recordings have them, "ts, ts": the two exhales 0.28 s apart, each with its hit (0.24 s
++    apart), the second on the uppercut; then him landing. BAM is printed with the first blow, POW
++    with the uppercut. The camera's hold on him eases off towards the aftermath, so it arrives
++    there without a jump: where you stood, a little lower, looking down at him and the letter.
++    Episode 3 starts from exactly that frame (`carTrack`), so going on after the invitation does
++    not move you.
+     - **The animation** (`tools/bakeFight.mjs` → `scenes/city/fightClip.json`, 141 KB): the source
+       is a two-man AdvancedSkeleton rig (FBX); its deform joints are retargeted onto the walking
+       man's Mixamo skeleton (each joint's world rotation moved from the source's bind pose onto the
+@@ -1033,8 +1038,16 @@ wipe opens.
+   in the scene is compiled again (a hitch of a good part of a second). Lights are dimmed to 0
+   instead: the moving cars' headlights (a car off the street hides its body only), the Mercedes'
+   headlights, the key light on the stranger, the laundry window's light on him after the fight.
+-- `Precompile` (`CityScene.tsx`) compiles every material of the street as the chapter opens,
+-  including those of things that only show later (the knife on the pavement, the letter).
++- `Prewarm` (`App.tsx`) compiles the next world's shaders while the current one plays, so a
++  chapter turn does not stall on them. A shader depends on the lights it is drawn with: under the
++  loading veil every mounted world draws at once, all their lights together, so those shaders fit
++  no single world and were all compiled again at the turn (the long stall going from chapter 1 to
++  2). The world is compiled on its own (its lights, its fog, both colour spaces a frame draws in,
++  after the print treatment has patched it), with KHR_parallel_shader_compile off the main thread.
++  Checked in a headless browser: before, the turn into the city made 45 to 60 new programs; now
++  it makes none for the city.
++- The ink buffer is one pass over the scene (it was three: occluders, ink, silhouettes): each
++  mesh sets its own line weight on the buffer's material as it is drawn (`inkWeight`).
+ - Pixel density only ever goes down (each change resizes every buffer); multisampling is decided
+   once, as the page starts.
+ 
+diff --git a/src/App.tsx b/src/App.tsx
+index b7ac823..dbbb570 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,12 +1,12 @@
+ import { Canvas, useFrame, useThree } from '@react-three/fiber';
+ import { Component, ReactNode, Suspense, useEffect, useRef } from 'react';
+-import { NoToneMapping, PCFShadowMap, SRGBColorSpace } from 'three';
++import { FogExp2, Group, HalfFloatType, NoToneMapping, Object3D, PCFShadowMap, SRGBColorSpace, Scene, WebGLRenderTarget } from 'three';
+ import { story, useStory } from './core/store';
+ import { EpisodeId, TOTAL_LENGTH, autoplay, chapterTurn, gates, locate, readScroll, scriptOwnsScroll, scrollToProgress, stopAutoplay, timeline } from './core/timeline';
+ import { EPISODES, builtEpisodes } from './episodes';
+ import { cameraDirector, rigPose, ScrollCameraRig } from './player/ScrollCameraRig';
+ import { encounter, encounterAt } from './scenes/city/encounter';
+-import { Stylizer } from './render/Stylizer';
++import { Stylizer, stylize } from './render/Stylizer';
+ import { FrameGrab } from './render/FrameGrab';
+ import { chapterOf, chapterReadiness } from './core/chapters';
+ import { preloadRoom } from './scenes/home/RoomScene';
+@@ -71,6 +71,8 @@ function EpisodeWorlds() {
+             <WorldBoundary chapter={chapter}>
+               <Suspense fallback={null}>
+                 <e.World active={shown(e.id)} />
++                {/* (only the worlds still to come: one left behind is not compiled again) */}
++                <Prewarm ahead={!loading && !shown(e.id) && list.indexOf(e) > i} />
+                 {e.id !== 'car' && e.id !== 'home' && <ChapterReady chapter={chapter} />}
+               </Suspense>
+             </WorldBoundary>
+@@ -81,6 +83,53 @@ function EpisodeWorlds() {
+   );
+ }
+ 
++/** For a world's shaders compiled ahead of time: a linear target (for passes that draw into one), and a fog of the kind every world uses. */
++const PREWARM_RT = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
++const PREWARM_FOG = new FogExp2('#000000', 0.01);
++
++/**
++ * Compiles a world's shaders while another is on screen, so the chapter turn into it does not
++ * stall on them. A shader depends on the lights it is drawn with: under the loading veil every
++ * mounted world draws at once, all their lights together, so those shaders do not fit any one
++ * world, and they were compiled again, all of them, at the turn (the long stall). Here the world
++ * is compiled on its own, with its own lights and its fog, for both colour spaces a frame draws it
++ * in (to the screen's and into a linear target), after
++ * the print treatment has patched its materials; with KHR_parallel_shader_compile the driver does
++ * it off the main thread. Once per mount, a moment after the world is ready.
++ */
++function Prewarm({ ahead }: { ahead: boolean }) {
++  const { gl, camera } = useThree();
++  const marker = useRef<Object3D>(null);
++  const done = useRef(false);
++  useEffect(() => {
++    if (!ahead || done.current) return;
++    const id = window.setTimeout(() => {
++      const root = marker.current?.parent as (Group & { fog?: FogExp2 | null }) | undefined;
++      if (!root || done.current) return;
++      done.current = true;
++      const wasVisible = root.visible;
++      const prevTarget = gl.getRenderTarget();
++      gl.setRenderTarget(null);
++      try {
++        stylize(root, gl.getPixelRatio());
++        root.visible = true;
++        root.fog = PREWARM_FOG;
++        void gl.compileAsync(root, camera, root as unknown as Scene).catch(() => undefined);
++        gl.setRenderTarget(PREWARM_RT);
++        void gl.compileAsync(root, camera, root as unknown as Scene).catch(() => undefined);
++      } catch (err) {
++        console.warn('[prewarm]', err);
++      } finally {
++        gl.setRenderTarget(prevTarget);
++        root.fog = null;
++        root.visible = wasVisible;
++      }
++    }, 1500);
++    return () => window.clearTimeout(id);
++  }, [ahead, gl, camera]);
++  return <object3D ref={marker} />;
++}
++
+ /**
+  * The 3D page's pixel density: up to 1.5 on a desktop; on touch devices (phones, tablets, with
+  * dense screens and small GPUs) up to 1.25, where the comic look's ink and halftone hold up and
+@@ -235,6 +284,7 @@ export function App() {
+             gl.toneMapping = NoToneMapping;
+             gl.outputColorSpace = SRGBColorSpace;
+             watchContextLoss(gl.domElement);
++            if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__gl = gl;
+           }}
+         >
+           <Suspense fallback={null}>
+diff --git a/src/characters/manRig.ts b/src/characters/manRig.ts
+index 3223165..871f9fb 100644
+--- a/src/characters/manRig.ts
++++ b/src/characters/manRig.ts
+@@ -87,6 +87,8 @@ const STANCE_T = 0.8;
+ /** Height he is scaled to (m). */
+ export const MAN_HEIGHT = 1.8;
+ const KNIFE_LENGTH = 0.28;
++/** How far each joint of the thumb folds across a fist (rad). */
++const FIST_THUMB = [0.45, 0.6, 0.55];
+ 
+ const knit = (shade: number, rib: number) => {
+   const c = document.createElement('canvas');
+@@ -309,7 +311,8 @@ export function buildMan(gltf: GLTF, knifeGltf: GLTF): ManRig {
+   const fingers = ['Index', 'Middle', 'Ring', 'Pinky'].flatMap((f) => [1, 2, 3].map((i) => ({ b: bone(`RightHand${f}${i}`), a: [1.25, 1.45, 0.9][i - 1] })));
+   const thumbs = [1, 2, 3].map((i) => ({ b: bone(`RightHandThumb${i}`), a: [0.35, 0.5, 0.6][i - 1] }));
+   const leftFingers = ['Index', 'Middle', 'Ring', 'Pinky'].flatMap((f) => [1, 2, 3].map((i) => ({ b: bone(`LeftHand${f}${i}`), a: [1.25, 1.45, 0.9][i - 1] })));
+-  const leftThumbs = [1, 2, 3].map((i) => ({ b: bone(`LeftHandThumb${i}`), a: [0.35, 0.5, 0.6][i - 1] }));
++  const leftThumbs = [1, 2, 3].map((i) => ({ b: bone(`LeftHandThumb${i}`), i: i - 1 }));
++  const fistThumbs = [1, 2, 3].map((i) => ({ b: bone(`RightHandThumb${i}`), i: i - 1 }));
+   const kept = list.map(() => new Quaternion());
+   const keptHips = new Vector3();
+   const keptModel = { p: new Vector3(), q: new Quaternion() };
+@@ -425,11 +428,11 @@ export function buildMan(gltf: GLTF, knifeGltf: GLTF): ManRig {
+       model.rotation.set(0, 0, 0);
+       bone('Hips').position.set(row[0], row[1], row[2]);
+       names.forEach((n, i) => bone(n).quaternion.set(row[3 + i * 4], row[4 + i * 4], row[5 + i * 4], row[6 + i * 4]).normalize());
+-      // fists
++      // fists: the fingers rolled into the palm, the thumb folded across them (both turn about their
++      // own x on either hand: checked on the model, the tips go into the palm)
+       for (const f of fingers) f.b.quaternion.multiply(QX.setFromAxisAngle(AX, f.a));
+-      for (const f of thumbs) f.b.quaternion.multiply(QX.setFromAxisAngle(AZ, -f.a));
+       for (const f of leftFingers) f.b.quaternion.multiply(QX.setFromAxisAngle(AX, f.a));
+-      for (const f of leftThumbs) f.b.quaternion.multiply(QX.setFromAxisAngle(AZ, f.a));
++      for (const f of [...fistThumbs, ...leftThumbs]) f.b.quaternion.multiply(QX.setFromAxisAngle(AX, FIST_THUMB[f.i]));
+       if (blend) {
+         const k = Math.max(0, w);
+         list.forEach((b, i) => b.quaternion.copy(QA.copy(kept[i]).slerp(b.quaternion, k)));
+diff --git a/src/render/Stylizer.tsx b/src/render/Stylizer.tsx
+index 68028c6..3040879 100644
+--- a/src/render/Stylizer.tsx
++++ b/src/render/Stylizer.tsx
+@@ -12,6 +12,51 @@ import { INK_LAYER, INK_SILHOUETTE_LAYER, InkEffect, OCCLUDER_LAYER, createInkBu
+  */
+ export const postFx = { clean: 0 };
+ 
++/**
++ * Prints a part of the scene: comic bands on its lit materials, its opaque meshes sorted into the
++ * ink and occluder layers. Each material is patched once; doing it again changes nothing, so a
++ * world can be stylised ahead of time (to compile its shaders before it is shown, App.tsx).
++ */
++export function stylize(root: Object3D, dpr: number) {
++  root.traverse((o: Object3D) => {
++    const mesh = o as Mesh;
++    if (!mesh.isMesh) return;
++    const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as Material[];
++    mats.forEach((m) => applyComic(m, dpr));
++    const transparent = mats.some((m) => m.transparent || (m as MeshBasicMaterial).blending > 1);
++    if (transparent || o.userData.ink === 'none') return;
++    // Each opaque mesh is drawn into the ink buffer exactly once: as ink, or as an occluder.
++    const glow = mats.every((m) => m instanceof MeshBasicMaterial);
++    if (!glow && o.userData.ink === 'silhouette') inkWeight(o, INK_SILHOUETTE_LAYER, 0.5);
++    else if (!glow && o.userData.ink !== false) inkWeight(o, INK_LAYER, 1);
++    else inkWeight(o, OCCLUDER_LAYER, 0);
++  });
++}
++
++/** The ink buffer's one material; each object sets its own line weight on it just before it is drawn. */
++const INK_BUFFER = createInkBufferMaterial(1);
++const WEIGHTED = new WeakSet<Object3D>();
++
++/**
++ * Puts a mesh in its ink layer and has it set its line weight (ink 1, silhouette 0.5, occluder 0)
++ * on the ink buffer's material as it is drawn into that buffer, so the whole buffer is one pass
++ * over the scene instead of three.
++ */
++function inkWeight(o: Object3D, layer: number, w: number) {
++  o.layers.enable(layer);
++  o.userData.inkWeight = w;
++  if (WEIGHTED.has(o)) return;
++  WEIGHTED.add(o);
++  const before = o.onBeforeRender;
++  o.onBeforeRender = function (renderer, scene, camera, geometry, material, group) {
++    if (material === INK_BUFFER) {
++      INK_BUFFER.uniforms.uWeight.value = this.userData.inkWeight;
++      INK_BUFFER.uniformsNeedUpdate = true;
++    }
++    before.call(this, renderer, scene, camera, geometry, material, group);
++  };
++}
++
+ /**
+  * Turns the lit scene into a printed page:
+  *  1. every lit material gets comic tonal bands with halftone transitions;
+@@ -25,9 +70,6 @@ export const postFx = { clean: 0 };
+ export function Stylizer({ version }: { version: unknown }) {
+   const { gl, scene, camera, size, viewport } = useThree();
+   const target = useMemo(createInkTarget, []);
+-  const occMat = useMemo(() => createInkBufferMaterial(0), []);
+-  const inkMat = useMemo(() => createInkBufferMaterial(1), []);
+-  const silMat = useMemo(() => createInkBufferMaterial(0.5), []);
+   const effect = useMemo(() => new InkEffect(target.texture), [target]);
+   const vignette = useRef<{ darkness: number } | null>(null);
+   const [msaa] = useState(() => (viewport.dpr > 1.2 ? 0 : 2));
+@@ -38,21 +80,7 @@ export function Stylizer({ version }: { version: unknown }) {
+   }, [effect, scene]);
+ 
+   // Classify the scene once it is mounted (and whenever the episode changes).
+-  useEffect(() => {
+-    const dpr = viewport.dpr;
+-    scene.traverse((o: Object3D) => {
+-      const mesh = o as Mesh;
+-      if (!mesh.isMesh) return;
+-      const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as Material[];
+-      mats.forEach((m) => applyComic(m, dpr));
+-      const transparent = mats.some((m) => m.transparent || (m as MeshBasicMaterial).blending > 1);
+-      if (transparent || o.userData.ink === 'none') return;
+-      // Each opaque mesh is drawn into the ink buffer exactly once: as ink, or as an occluder.
+-      const glow = mats.every((m) => m instanceof MeshBasicMaterial);
+-      if (!glow && o.userData.ink === 'silhouette') o.layers.enable(INK_SILHOUETTE_LAYER);
+-      else o.layers.enable(!glow && o.userData.ink !== false ? INK_LAYER : OCCLUDER_LAYER);
+-    });
+-  }, [scene, viewport.dpr, version]);
++  useEffect(() => stylize(scene, viewport.dpr), [scene, viewport.dpr, version]);
+ 
+   useEffect(() => {
+     const w = Math.floor(size.width * viewport.dpr);
+@@ -80,14 +108,11 @@ export function Stylizer({ version }: { version: unknown }) {
+     gl.setRenderTarget(target);
+     gl.setClearColor(clear, 1);
+     gl.clear(true, true, true);
++    // one pass: the occluders, the ink and the silhouettes together, each with its own weight (inkWeight)
+     camera.layers.set(OCCLUDER_LAYER);
+-    scene.overrideMaterial = occMat;
+-    gl.render(scene, camera);
+-    camera.layers.set(INK_LAYER);
+-    scene.overrideMaterial = inkMat;
+-    gl.render(scene, camera);
+-    camera.layers.set(INK_SILHOUETTE_LAYER);
+-    scene.overrideMaterial = silMat;
++    camera.layers.enable(INK_LAYER);
++    camera.layers.enable(INK_SILHOUETTE_LAYER);
++    scene.overrideMaterial = INK_BUFFER;
+     gl.render(scene, camera);
+     scene.overrideMaterial = null;
+     camera.layers.mask = mask;
+diff --git a/src/scenes/car/episode.ts b/src/scenes/car/episode.ts
+index 17eaf53..cd543aa 100644
+--- a/src/scenes/car/episode.ts
++++ b/src/scenes/car/episode.ts
+@@ -36,8 +36,8 @@ const SEAT = W(DRIVER_EYE.x, DRIVER_EYE.y, DRIVER_EYE.z);
+ 
+ export const carTrack = new CameraTrack([
+   // episode 2's last frame, exactly (city track, t = 1)
+-  { t: 0, pos: [5.5, 1.4, -32.9], yaw: deg(-24), pitch: deg(-21), fov: 44 },
+-  { t: CAR_BEAT.hold, pos: [5.5, 1.4, -32.9], yaw: deg(-24), pitch: deg(-21), fov: 44 },
++  { t: 0, pos: [6.35, 1.52, -33.8], yaw: deg(-4), pitch: deg(-28), fov: 45 },
++  { t: CAR_BEAT.hold, pos: [6.35, 1.52, -33.8], yaw: deg(-4), pitch: deg(-28), fov: 45 },
+   // up, looking on down the street past him: the Mercedes stands at the kerb ahead
+   { t: CAR_BEAT.turn, pos: [5.4, 1.68, -33.2], yaw: deg(18), pitch: deg(-7), fov: 50 },
+   { t: 0.2, pos: [5.15, 1.68, -34.3], yaw: deg(24), pitch: deg(-6), fov: 50 },
+diff --git a/src/scenes/city/CityScene.tsx b/src/scenes/city/CityScene.tsx
+index c2667a2..9368329 100644
+--- a/src/scenes/city/CityScene.tsx
++++ b/src/scenes/city/CityScene.tsx
+@@ -1,6 +1,5 @@
+ import { useFrame, useThree } from '@react-three/fiber';
+-import { useEffect, useMemo, useRef } from 'react';
+-import { Object3D } from 'three';
++import { useEffect, useMemo } from 'react';
+ import { audio } from '../../audio/AudioDirector';
+ import { createCrowd } from '../../characters/crowd';
+ import { People } from '../../characters/People';
+@@ -14,7 +13,7 @@ import { cityNav } from './nav';
+ import { BEAT, cityTimeScale, disarm, encounter, updateEncounter } from './encounter';
+ import { PORTAL, STATION_FACE_Z } from './layout';
+ import { Skyline } from './Skyline';
+-import { LaundryLight, Stranger, StrangerBoundary } from './Stranger';
++import { Fists, LaundryLight, Stranger, StrangerBoundary } from './Stranger';
+ import { updateLetter } from './letter';
+ import { LetterProp } from './LetterProp';
+ import { Street } from './Street';
+@@ -27,50 +26,6 @@ const timeScale = () => {
+   return cityTimeScale(1) + (1 - cityTimeScale(1)) * smoothstep(clamp(car / 0.3, 0, 1));
+ };
+ 
+-/**
+- * Compiles every material of the street once, as the chapter opens, including those of things
+- * that only appear later (the knife on the pavement, the letter, the laundry window's light on
+- * him): otherwise each is compiled the moment it first shows, a hitch right after the fight. Its
+- * marker sits in the city's own group; the hidden parts are shown for the compile and hidden
+- * again at once (nothing is drawn in between).
+- */
+-function Precompile({ active }: { active: boolean }) {
+-  const { gl, scene, camera } = useThree();
+-  const marker = useRef<Object3D>(null);
+-  const done = useRef(false);
+-  useEffect(() => {
+-    if (!active || done.current) return;
+-    let raf = 0;
+-    let n = 0;
+-    // a few frames in, after the print treatment has patched the street's materials
+-    const go = () => {
+-      if (++n < 4) {
+-        raf = requestAnimationFrame(go);
+-        return;
+-      }
+-      const root = marker.current?.parent;
+-      if (!root) return;
+-      const hidden: Object3D[] = [];
+-      root.traverse((o) => {
+-        if (!o.visible) {
+-          hidden.push(o);
+-          o.visible = true;
+-        }
+-      });
+-      try {
+-        gl.compile(root, camera, scene);
+-      } catch (err) {
+-        console.warn('[city] precompile', err);
+-      }
+-      hidden.forEach((o) => (o.visible = false));
+-      done.current = true;
+-    };
+-    raf = requestAnimationFrame(go);
+-    return () => cancelAnimationFrame(raf);
+-  }, [active, gl, scene, camera]);
+-  return <object3D ref={marker} />;
+-}
+-
+ /** The city's sound: a quiet bed that thins out and muffles as the stranger closes in. */
+ function Soundscape({ active }: { active: boolean }) {
+   const st = useMemo(() => ({ cutoff: 20000 }), []);
+@@ -156,6 +111,8 @@ export function CityScene({ active }: { active: boolean }) {
+       <People crowd={crowd} scroll={() => localProgress('city')} timeScale={timeScale} enabled={active} />
+       <StrangerBoundary>
+         <Stranger active={active} timeScale={timeScale} />
++        {/* your arms in the fight, under the blur */}
++        <Fists active={active} />
+       </StrangerBoundary>
+       <LaundryLight active={active} />
+       {/* the letter he dropped, after the fight */}
+@@ -163,7 +120,6 @@ export function CityScene({ active }: { active: boolean }) {
+       {/* the getaway car stands at the kerb from the start; episode 3 is played with it */}
+       <Mercedes />
+       <Soundscape active={active} />
+-      <Precompile active={active} />
+     </>
+   );
+ }
+diff --git a/src/scenes/city/Stranger.tsx b/src/scenes/city/Stranger.tsx
+index 3641d28..31b6146 100644
+--- a/src/scenes/city/Stranger.tsx
++++ b/src/scenes/city/Stranger.tsx
+@@ -3,7 +3,7 @@ import { suspend } from 'suspend-react';
+ import manUrl from '../../assets/man.glb?url';
+ import knifeUrl from '../../assets/knife.glb?url';
+ import { Component, ReactNode, useEffect, useMemo, useRef } from 'react';
+-import { Object3D, PointLight, SpotLight, Vector3 } from 'three';
++import { BufferGeometry, Mesh, MeshStandardMaterial, Object3D, PointLight, SkinnedMesh, SpotLight, Vector3 } from 'three';
+ import { loadGlb } from '../../characters/inlineModel';
+ import { buildMan } from '../../characters/manRig';
+ import { START_PHASE } from '../../characters/walkClip';
+@@ -159,6 +159,94 @@ export function Stranger({ active }: { active: boolean; timeScale: () => number
+   );
+ }
+ 
++/**
++ * Your arms in the fight, seen from your own eyes under the blur: your side of the fight's
++ * animation (fight.ts) on a second copy of the walking man, of which only the arms are kept (the
++ * jacket's sleeves out from the shoulders, dark, and the hands, closed in fists). He is placed so
++ * that his head, as the fight starts, is where your eyes are; the rest of him is not drawn.
++ */
++export function Fists({ active }: { active: boolean }) {
++  const gltf = suspend(() => loadGlb(manUrl), ['drunkfurt-man']);
++  const knifeGltf = suspend(() => loadGlb(knifeUrl), ['drunkfurt-knife']);
++  const built = useMemo(() => {
++    const rig = buildMan(gltf, knifeGltf);
++    rig.root.name = 'fists';
++    rig.root.visible = false;
++    const k = rig.model.scale.x;
++    const made: (BufferGeometry | MeshStandardMaterial)[] = [];
++    const v = new Vector3();
++    // only the arms: triangles whose corners all lie out along the arms in the bind pose (arms out along x)
++    const cut = (m: SkinnedMesh, from: number) => {
++      const src = m.geometry;
++      const pos = src.getAttribute('position');
++      const idx = src.getIndex();
++      const out: number[] = [];
++      const far = (i: number) => Math.abs(v.fromBufferAttribute(pos, i).applyMatrix4(m.bindMatrix).x * k) > from;
++      const n = idx ? idx.count : pos.count;
++      for (let t = 0; t < n; t += 3) {
++        const a = idx ? idx.getX(t) : t;
++        const b = idx ? idx.getX(t + 1) : t + 1;
++        const c = idx ? idx.getX(t + 2) : t + 2;
++        if (far(a) && far(b) && far(c)) out.push(a, b, c);
++      }
++      const g = new BufferGeometry();
++      for (const name of Object.keys(src.attributes)) g.setAttribute(name, src.getAttribute(name));
++      g.setIndex(out);
++      g.boundingSphere = src.boundingSphere;
++      made.push(g);
++      m.geometry = g;
++    };
++    rig.model.traverse((o) => {
++      const m = o as SkinnedMesh;
++      if (!(m as Mesh).isMesh) return;
++      const name = `${m.name} ${(m.material as MeshStandardMaterial).name}`;
++      if (m.isSkinnedMesh && /top/i.test(name)) {
++        cut(m, 0.21);
++        // a dark sleeve, yours (not his tan canvas)
++        const mat = new MeshStandardMaterial({ color: '#2b2b2e', roughness: 0.9 });
++        mat.userData.comic = { mono: true, halftone: 0.55 };
++        made.push(mat);
++        m.material = mat;
++      } else if (m.isSkinnedMesh && /body/i.test(name) && /^body$/i.test(m.name)) {
++        cut(m, 0.6);
++      } else m.visible = false; // his head, legs, clothes, beanie, scarf, knife
++    });
++    // where his head is as the fight starts, in his own frame: put there, your eyes are on it
++    rig.root.position.set(0, 0, 0);
++    rig.root.rotation.set(0, 0, 0);
++    rig.fight(fightRow('puncher', 0), FIGHT_BONES);
++    const head = rig.bone('Head').getWorldPosition(new Vector3());
++    if (import.meta.env.DEV) (window as unknown as { __fists: unknown }).__fists = rig;
++    return { rig, made, head };
++  }, [gltf, knifeGltf]);
++  useEffect(
++    () => () => {
++      built.made.forEach((x) => x.dispose());
++      built.rig.dispose();
++    },
++    [built],
++  );
++  useFrame(() => {
++    const { rig, head } = built;
++    const local = localProgress('city');
++    const v = encounterAt(local);
++    // from just after the press (under the blur coming in) until he is down
++    const on = active && v.outcome === 'blocked' && local < BEAT.aftermath && v.t >= 0.3 && v.t < BLOCK.land + 0.35;
++    rig.root.visible = on;
++    if (!on) return;
++    const f = FIGHT_FRAME.puncher;
++    // his frame turned to face him; then shifted so his head starts at your eyes (head is in that frame, unturned)
++    const c = Math.cos(f.yaw);
++    const sn = Math.sin(f.yaw);
++    const hx = head.x * c + head.z * sn;
++    const hz = -head.x * sn + head.z * c;
++    rig.root.position.set(CAM.x - hx, CAM.y - head.y, CAM.z - hz);
++    rig.root.rotation.y = f.yaw;
++    rig.fight(fightRow('puncher', Math.max(0, v.t - BLOCK.fight)), FIGHT_BONES);
++  });
++  return <primitive object={built.rig.root} />;
++}
++
+ /**
+  * The light from the laundry window that falls across the man once he is on
+  * the pavement (from the moment the page goes black, so scrolling back before
+diff --git a/src/scenes/city/encounter.ts b/src/scenes/city/encounter.ts
+index 2df8b9d..0da0649 100644
+--- a/src/scenes/city/encounter.ts
++++ b/src/scenes/city/encounter.ts
+@@ -112,13 +112,12 @@ export function cityTimeScale(local: number) {
+ interface Cue { at: number; kind: Parameters<typeof audio.fight>[0] }
+ const CUES: Record<'blocked' | 'knockedOut', Cue[]> = {
+   blocked: [
+-    // every blow of the flurry: the hit, and your breath forced out with it (the boxer's "ts"),
+-    // the two recorded exhales taking turns
+-    ...CLIP.flurry.flatMap((c, i) => [
+-      { at: BLOCK.fight + c, kind: 'block' as const },
+-      { at: BLOCK.fight + c, kind: (i % 2 ? 'exhale2' : 'exhale1') as Cue['kind'] },
+-    ]),
+-    // the uppercut, with its exhale, and him landing on the pavement
++    // the flurry: the hit of each blow
++    ...CLIP.flurry.map((c) => ({ at: BLOCK.fight + c, kind: 'block' as const })),
++    // the last two blows: the two recorded exhales ("ts, ts") each with its hit, as far apart as
++    // they are in the recordings (exhales 0.28 s, hits 0.24 s), the second on the uppercut
++    { at: BLOCK.hit2 - 0.28, kind: 'exhale1' },
++    { at: BLOCK.hit2 - 0.24, kind: 'block' },
+     { at: BLOCK.hit2, kind: 'exhale2' },
+     { at: BLOCK.hit2, kind: 'punch' },
+     { at: BLOCK.land, kind: 'fall' },
+diff --git a/src/scenes/city/track.ts b/src/scenes/city/track.ts
+index c86a0c3..5a635bc 100644
+--- a/src/scenes/city/track.ts
++++ b/src/scenes/city/track.ts
+@@ -20,8 +20,8 @@ export const cityTrack = new CameraTrack([
+   // the knife comes up: your eyes drop to it, his face still in the frame
+   { t: BEAT.gate, pos: [6.5, EYE, -34], yaw: deg(2), pitch: deg(-8), fov: 50 },
+   { t: 0.86, pos: [6.5, EYE, -34], yaw: deg(2), pitch: deg(-8), fov: 50 },
+-  // after the fight, back in your own eyes where it left you (fight.ts: a step back from where
+-  // you stood), looking down at him on his back and the letter between you
+-  { t: BEAT.aftermath, pos: [6.49, EYE, -33.72], yaw: deg(1), pitch: deg(-31), fov: 48 },
+-  { t: 1.0, pos: [6.49, EYE - 0.02, -33.74], yaw: deg(1), pitch: deg(-30), fov: 46 },
++  // after the fight: where you stood, a little lower, looking down at him on his back and the
++  // letter between you. Episode 3 starts from exactly this frame (car/episode.ts), so nothing jumps.
++  { t: BEAT.aftermath, pos: [6.35, 1.55, -33.75], yaw: deg(-3), pitch: deg(-27), fov: 46 },
++  { t: 1.0, pos: [6.35, 1.52, -33.8], yaw: deg(-4), pitch: deg(-28), fov: 45 },
+ ]);
+diff --git a/src/ui/Overlay.tsx b/src/ui/Overlay.tsx
+index 0365c77..87237a1 100644
+--- a/src/ui/Overlay.tsx
++++ b/src/ui/Overlay.tsx
+@@ -25,7 +25,7 @@ import { PressPrompt } from './PressPrompt';
+ /** Once you defend: the street breaks into coarse pixels, blurs and darkens, which hides the fight (block px, blur 0 … 1, dark 0 … 1). */
+ const HIDE = { block: 26, blur: 0.85, dark: 0.8 };
+ /** Defended: the fight under it still reads, as shapes moving behind frosted glass. */
+-const VEIL = { block: 12, blur: 0.8, dark: 0.35 };
++const VEIL = { block: 9, blur: 0.6, dark: 0.3 };
+ 
+ /**
+  * How the street looks around the fight: block size (CSS px; 1 = not
+-- 
+2.43.0
+

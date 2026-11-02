@@ -1,0 +1,162 @@
+From 660a053aa7e5f920e84c6a8c9ffacb6706fdf0cb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 15:37:20 +0000
+Subject: [PATCH 5/5] Prewarm one shader at a time: the burst froze the page on
+ a real GPU
+
+The next world's shaders were all issued at once during the opening transition; the card
+compiles them one after another and the pixel transition, which reads the picture back every
+frame, waited for all of them (page unresponsive). Now one object per kind of shader, the next
+only once the card has finished the last (or a third of a second later without the parallel
+compile extension), never during a transition, a chapter turn or the preloader; no compileAsync.
+Adaptive density no longer measures during the pixel transitions.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017Yfam9H7FbQFsBx6yJZ8yW
+---
+ src/App.tsx | 106 +++++++++++++++++++++++++++++++++++++++-------------
+ 1 file changed, 81 insertions(+), 25 deletions(-)
+
+diff --git a/src/App.tsx b/src/App.tsx
+index dbbb570..ab54a52 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,6 +1,6 @@
+ import { Canvas, useFrame, useThree } from '@react-three/fiber';
+ import { Component, ReactNode, Suspense, useEffect, useRef } from 'react';
+-import { FogExp2, Group, HalfFloatType, NoToneMapping, Object3D, PCFShadowMap, SRGBColorSpace, Scene, WebGLRenderTarget } from 'three';
++import { FogExp2, Group, HalfFloatType, Material, Mesh, NoToneMapping, Object3D, PCFShadowMap, SRGBColorSpace, Scene, WebGLRenderTarget } from 'three';
+ import { story, useStory } from './core/store';
+ import { EpisodeId, TOTAL_LENGTH, autoplay, chapterTurn, gates, locate, readScroll, scriptOwnsScroll, scrollToProgress, stopAutoplay, timeline } from './core/timeline';
+ import { EPISODES, builtEpisodes } from './episodes';
+@@ -93,9 +93,17 @@ const PREWARM_FOG = new FogExp2('#000000', 0.01);
+  * mounted world draws at once, all their lights together, so those shaders do not fit any one
+  * world, and they were compiled again, all of them, at the turn (the long stall). Here the world
+  * is compiled on its own, with its own lights and its fog, for both colour spaces a frame draws it
+- * in (to the screen's and into a linear target), after
+- * the print treatment has patched its materials; with KHR_parallel_shader_compile the driver does
+- * it off the main thread. Once per mount, a moment after the world is ready.
++ * in (to the screen's and into a linear target), after the print treatment has patched its
++ * materials.
++ *
++ * A little at a time: one object per kind of shader it needs (its material and the variant the
++ * object asks for: skinned, instanced, receiving shadows, its vertex data), and only one at a
++ * time: the next is asked for once the graphics card has finished the last (with the
++ * KHR_parallel_shader_compile extension, asked without waiting), or else a third of a second
++ * later. Never during a transition (the opening pixels, a chapter turn) or the preloader.
++ * Issuing a compile costs nothing here, but the card compiles them one after another, and a
++ * page that then reads its picture back (the pixel transitions do, every frame) waits for all of
++ * them: issued all at once, as before, a hundred of them froze the page on a real GPU.
+  */
+ function Prewarm({ ahead }: { ahead: boolean }) {
+   const { gl, camera } = useThree();
+@@ -103,29 +111,77 @@ function Prewarm({ ahead }: { ahead: boolean }) {
+   const done = useRef(false);
+   useEffect(() => {
+     if (!ahead || done.current) return;
+-    const id = window.setTimeout(() => {
++    const parallel = gl.extensions.has('KHR_parallel_shader_compile');
++    let timer = 0;
++    let queue: Mesh[] | null = null;
++    let pass = 0;
++    let waiting: { isReady(): boolean } | null = null;
++    let next = 0;
++    const later = (ms: number) => (timer = window.setTimeout(step, ms));
++    const busy = () =>
++      chapterTurn.busy || document.hidden || !!document.querySelector('.pixel-reveal, .chapter-out') || document.documentElement.classList.contains('is-preloading');
++    const step = () => {
+       const root = marker.current?.parent as (Group & { fog?: FogExp2 | null }) | undefined;
+-      if (!root || done.current) return;
+-      done.current = true;
+-      const wasVisible = root.visible;
+-      const prevTarget = gl.getRenderTarget();
+-      gl.setRenderTarget(null);
+-      try {
++      if (!root || busy()) return later(500);
++      // the last one still being compiled by the card: wait for it
++      if (waiting && parallel && !waiting.isReady()) return later(50);
++      if (!parallel && performance.now() < next) return later(next - performance.now());
++      waiting = null;
++      if (!queue) {
+         stylize(root, gl.getPixelRatio());
+-        root.visible = true;
+-        root.fog = PREWARM_FOG;
+-        void gl.compileAsync(root, camera, root as unknown as Scene).catch(() => undefined);
+-        gl.setRenderTarget(PREWARM_RT);
+-        void gl.compileAsync(root, camera, root as unknown as Scene).catch(() => undefined);
+-      } catch (err) {
+-        console.warn('[prewarm]', err);
+-      } finally {
+-        gl.setRenderTarget(prevTarget);
+-        root.fog = null;
+-        root.visible = wasVisible;
++        // one object for each kind of shader the world needs
++        const seen = new Set<string>();
++        queue = [];
++        root.traverse((o) => {
++          const m = o as Mesh & { isSkinnedMesh?: boolean; isInstancedMesh?: boolean; instanceColor?: unknown };
++          if (!m.isMesh) return;
++          const g = m.geometry;
++          const variant = `${m.isSkinnedMesh ? 's' : ''}${m.isInstancedMesh ? 'i' : ''}${m.instanceColor ? 'c' : ''}${m.receiveShadow ? 'r' : ''}${g.getAttribute('tangent') ? 't' : ''}${g.getAttribute('color') ? 'v' : ''}${g.getAttribute('uv1') ? '1' : ''}${g.morphAttributes.position ? 'm' : ''}`;
++          const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Material[];
++          const key = mats.map((x) => x.uuid).join('+') + variant;
++          if (seen.has(key)) return;
++          seen.add(key);
++          queue!.push(m);
++        });
++      }
++      const o = queue.pop();
++      if (o) {
++        const wasVisible = root.visible;
++        const prevTarget = gl.getRenderTarget();
++        const before = gl.info.programs?.length ?? 0;
++        try {
++          root.visible = true;
++          root.fog = PREWARM_FOG;
++          gl.setRenderTarget(pass === 0 ? null : PREWARM_RT);
++          gl.compile(o, camera, root as unknown as Scene);
++          // a new program made: wait for it before the next (an existing one: go straight on)
++          if ((gl.info.programs?.length ?? 0) > before) {
++            const mat = (Array.isArray(o.material) ? o.material[0] : o.material) as Material;
++            waiting = (gl.properties.get(mat) as { currentProgram?: { isReady(): boolean } }).currentProgram ?? null;
++            next = performance.now() + 330;
++          }
++        } catch (err) {
++          console.warn('[prewarm]', err);
++          queue.length = 0;
++          pass = 1;
++        } finally {
++          gl.setRenderTarget(prevTarget);
++          root.fog = null;
++          root.visible = wasVisible;
++        }
++      }
++      if (queue.length) return later(waiting ? 50 : 0);
++      if (pass === 0) {
++        // the same again, for the linear target
++        pass = 1;
++        queue = null;
++        return later(0);
+       }
+-    }, 1500);
+-    return () => window.clearTimeout(id);
++      done.current = true;
++    };
++    // a while after the world is ready, once the page has settled
++    later(5000);
++    return () => window.clearTimeout(timer);
+   }, [ahead, gl, camera]);
+   return <object3D ref={marker} />;
+ }
+@@ -151,7 +207,7 @@ function AdaptiveDpr() {
+   useFrame((_, delta) => {
+     const s = st.current;
+     if (s.dpr <= 1) return;
+-    if (delta > 0.25 || document.hidden || chapterTurn.busy || document.documentElement.classList.contains('is-preloading')) {
++    if (delta > 0.25 || document.hidden || chapterTurn.busy || document.documentElement.classList.contains('is-preloading') || document.querySelector('.pixel-reveal, .chapter-out')) {
+       s.acc = 0;
+       s.n = 0;
+       return;
+-- 
+2.43.0
+

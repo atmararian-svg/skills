@@ -1,7 +1,7 @@
 From 660a053aa7e5f920e84c6a8c9ffacb6706fdf0cb Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 2 Nov 2026 15:37:20 +0000
-Subject: [PATCH 5/5] Prewarm one shader at a time: the burst froze the page on
+Subject: [PATCH 5/6] Prewarm one shader at a time: the burst froze the page on
  a real GPU
 
 The next world's shaders were all issued at once during the opening transition; the card

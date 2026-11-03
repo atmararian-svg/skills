@@ -1,0 +1,436 @@
+From a244191daec1cc12c8ff530f328a449df1fb93e7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 20:45:54 +0000
+Subject: [PATCH 6/6] Optimise: free worlds left behind, fewer lights, density
+ 1.25, come back after a lost GPU
+
+- Only the world you are in and the next stay mounted; a world left behind frees its geometries,
+  materials and textures (city 159 -> 112 MB of textures, cave 166 -> 80 MB, programs halved).
+- Lights: the station's masts behind the door and the street's far pair of lamps only glow; the
+  moving cars' headlights are their drawn beam, not lights (station 13 -> 8 spots, city 14 -> 9);
+  two shadow casters per world.
+- Pixel density at most 1.25.
+- When the browser takes WebGL away and does not give it back, the page reloads and comes back to
+  the chapter you were in, with your sound setting, without asking again.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017Yfam9H7FbQFsBx6yJZ8yW
+---
+ README.md                             | 22 ++++++++++++
+ src/App.tsx                           | 44 +++++++++++++++++++----
+ src/scenes/city/Cars.tsx              | 35 +++---------------
+ src/scenes/city/StreetFurniture.tsx   |  5 ++-
+ src/scenes/station/Lighting.tsx       | 10 ++++--
+ src/scenes/station/lighting-config.ts |  2 +-
+ src/ui/Preloader.tsx                  | 28 ++++++++++-----
+ src/ui/resume.ts                      | 51 +++++++++++++++++++++++++++
+ src/ui/stub.ts                        |  5 ++-
+ 9 files changed, 148 insertions(+), 54 deletions(-)
+ create mode 100644 src/ui/resume.ts
+
+diff --git a/README.md b/README.md
+index 691e8e9..845d86a 100644
+--- a/README.md
++++ b/README.md
+@@ -1027,6 +1027,28 @@ wipe opens.
+ 
+ ## Performance
+ 
++Measured in a headless browser, at 1280 × 720 (video memory for textures, programs, lights):
++
++| | before | now |
++| --- | --- | --- |
++| station | 83 MB, 61 programs, 13 spots, 3 shadows | 78 MB, 56 programs, 8 spots, 2 shadows |
++| city | 159 MB, 123 programs, 14 spots | 112 MB, 69 programs, 9 spots |
++| cave | 166 MB, 118 programs | 80 MB, 28 programs |
++
++- **Worlds left behind are unmounted** (only the one you are in and the next stay, plus the one an
++  episode plays in) and `FreeOnUnmount` frees their geometries, materials and textures on the
++  graphics card. Going back builds a world again from the loaded models.
++- **Fewer lights**: every light is paid for by every lit pixel. The station's masts behind the
++  door (29 m and more behind where you start, never looked at) only glow; the street's pair of
++  lamps at z -63 only glow; the moving cars' headlights are their drawn beam on the road, not
++  lights. Two shadow-casting lights in each world, not three.
++- **Pixel density** at most 1.25 (it was 1.5 on a desktop: a retina screen's frame buffers alone
++  took some 300 MB).
++- **When the graphics card gives out** (the browser takes WebGL away and does not hand it back),
++  the page reloads itself and comes back to the chapter the visitor was in, from its beginning,
++  with their sound setting and without the sound choice (`ui/resume.ts`); a second loss within
++  45 s shows the stub instead of reloading again.
++
+ - Every frame is drawn about four times (the picture, and the ink's normal and depth buffer in
+   three layers), so pixel density is what costs most. It starts at the screen's own density, at
+   most 1.5 on a desktop and 1.25 on touch screens, and `AdaptiveDpr` (`App.tsx`) lowers it in
+diff --git a/src/App.tsx b/src/App.tsx
+index ab54a52..ebd8d62 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,6 +1,6 @@
+ import { Canvas, useFrame, useThree } from '@react-three/fiber';
+-import { Component, ReactNode, Suspense, useEffect, useRef } from 'react';
+-import { FogExp2, Group, HalfFloatType, Material, Mesh, NoToneMapping, Object3D, PCFShadowMap, SRGBColorSpace, Scene, WebGLRenderTarget } from 'three';
++import { Component, ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
++import { FogExp2, Group, HalfFloatType, Material, Mesh, NoToneMapping, Object3D, PCFShadowMap, SRGBColorSpace, Scene, Texture, WebGLRenderTarget } from 'three';
+ import { story, useStory } from './core/store';
+ import { EpisodeId, TOTAL_LENGTH, autoplay, chapterTurn, gates, locate, readScroll, scriptOwnsScroll, scrollToProgress, stopAutoplay, timeline } from './core/timeline';
+ import { EPISODES, builtEpisodes } from './episodes';
+@@ -58,7 +58,9 @@ function EpisodeWorlds() {
+   const activeId = episode === 'outro' ? list[list.length - 1].id : episode;
+   // an episode that plays in another's world (episode 3 on episode 2's street) draws and runs that world too
+   const host = EPISODES[activeId as EpisodeId]?.sharesWorld;
+-  const near = episode === 'outro' ? list.slice(-1) : list.slice(Math.max(0, i - 1), i + 2);
++  // the world you are in and the next (and the world an episode plays in): one left behind is
++  // unmounted and its video memory freed (going back builds it again from the loaded models)
++  const near = episode === 'outro' ? list.slice(-1) : list.slice(i, i + 2);
+   const mounted = list.filter((e) => near.includes(e) || e.id === host);
+   const shown = (id: EpisodeId) => id === activeId || id === host;
+   return (
+@@ -73,6 +75,7 @@ function EpisodeWorlds() {
+                 <e.World active={shown(e.id)} />
+                 {/* (only the worlds still to come: one left behind is not compiled again) */}
+                 <Prewarm ahead={!loading && !shown(e.id) && list.indexOf(e) > i} />
++                <FreeOnUnmount />
+                 {e.id !== 'car' && e.id !== 'home' && <ChapterReady chapter={chapter} />}
+               </Suspense>
+             </WorldBoundary>
+@@ -83,6 +86,33 @@ function EpisodeWorlds() {
+   );
+ }
+ 
++/**
++ * A world left behind is unmounted; this frees what it held on the graphics card: every
++ * geometry, material and texture under its group (in the unmount, while they are still there).
++ * Three keeps the objects usable: whatever is drawn again is simply uploaded again.
++ */
++function FreeOnUnmount() {
++  const marker = useRef<Object3D>(null);
++  useLayoutEffect(() => {
++    const world = marker.current?.parent;
++    return () => {
++      if (!world) return;
++      const seen = new Set<{ dispose(): void }>();
++      world.traverse((o) => {
++        const m = o as Mesh;
++        if (m.geometry) seen.add(m.geometry);
++        const mats = (Array.isArray(m.material) ? m.material : m.material ? [m.material] : []) as Material[];
++        for (const mat of mats) {
++          seen.add(mat);
++          for (const v of Object.values(mat)) if (v && (v as Texture).isTexture) seen.add(v as Texture);
++        }
++      });
++      seen.forEach((x) => x.dispose());
++    };
++  }, []);
++  return <object3D ref={marker} />;
++}
++
+ /** For a world's shaders compiled ahead of time: a linear target (for passes that draw into one), and a fog of the kind every world uses. */
+ const PREWARM_RT = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
+ const PREWARM_FOG = new FogExp2('#000000', 0.01);
+@@ -187,13 +217,13 @@ function Prewarm({ ahead }: { ahead: boolean }) {
+ }
+ 
+ /**
+- * The 3D page's pixel density: up to 1.5 on a desktop; on touch devices (phones, tablets, with
+- * dense screens and small GPUs) up to 1.25, where the comic look's ink and halftone hold up and
+- * the frame rate does too. Every frame is drawn about four times over (the picture and the ink's
++ * The 3D page's pixel density: up to 1.25, desktop and touch alike (the comic look's ink and
++ * halftone hold up at it; at 1.5 a retina screen's frame buffers alone took some 300 MB of video
++ * memory, which is what makes a browser take a page's WebGL away). Every frame is drawn about four times over (the picture and the ink's
+  * normal and depth buffer), so density is what costs most: AdaptiveDpr lowers it, in steps, on a
+  * machine that cannot keep up.
+  */
+-const MAX_DPR = Math.min(window.devicePixelRatio || 1, window.matchMedia?.('(pointer: coarse)').matches ? 1.25 : 1.5);
++const MAX_DPR = Math.min(window.devicePixelRatio || 1, 1.25);
+ 
+ /**
+  * Lowers the pixel density a step (0.25, not below 1) when the frames have averaged over 22 ms
+diff --git a/src/scenes/city/Cars.tsx b/src/scenes/city/Cars.tsx
+index fe2ba9b..49e6384 100644
+--- a/src/scenes/city/Cars.tsx
++++ b/src/scenes/city/Cars.tsx
+@@ -1,6 +1,6 @@
+ import { useFrame } from '@react-three/fiber';
+ import { useEffect, useMemo, useRef } from 'react';
+-import { BufferGeometry, ExtrudeGeometry, Group, Object3D, Shape, SpotLight } from 'three';
++import { BufferGeometry, ExtrudeGeometry, Group, Shape } from 'three';
+ import { audio } from '../../audio/AudioDirector';
+ import { GeoBatch } from '../../core/geometry';
+ import { localProgress, locate, timeline } from '../../core/timeline';
+@@ -46,9 +46,6 @@ function carParts(): { body: BufferGeometry; glass: BufferGeometry; tyres: Buffe
+   return { body, glass, tyres: tb.build()[0].geometry, lights: lb.build()[0].geometry };
+ }
+ 
+-/** A moving car's headlight. */
+-const HEADLIGHT = 160;
+-
+ export function Cars({ active, timeScale }: { active: boolean; timeScale: () => number }) {
+   const m = cityMaterials();
+   const geo = useMemo(carParts, []);
+@@ -62,9 +59,7 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__traffic = { traffic, step: (sec: number) => stepTraffic(traffic, sec, null) };
+   }, [traffic]);
+   const groups = useRef<(Group | null)[]>([]);
+-  const spots = useRef<(SpotLight | null)[]>([]);
+   const passed = useMemo(() => defs.map(() => false), [defs]);
+-  const target = useMemo(() => defs.map(() => new Object3D()), [defs]);
+ 
+   useFrame((_, rawDt) => {
+     if (!active) return;
+@@ -76,13 +71,8 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+     traffic.cars.forEach((c, i) => {
+       const g = groups.current[i];
+       if (!g) return;
+-      // (a car off the street hides its body, but its headlight stays in the scene, dark: a light
+-      // coming and going changes the number of lights, and every material in the street is
+-      // compiled again, a visible hitch)
+       const on = c.on && !(getaway && i === 0);
+-      for (const ch of g.children) if (!(ch as SpotLight).isLight) ch.visible = on;
+-      const sp = spots.current[i];
+-      if (sp) sp.intensity = on ? HEADLIGHT : 0;
++      g.visible = on;
+       if (!c.on) {
+         passed[i] = false;
+         return;
+@@ -94,10 +84,6 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+         passed[i] = true;
+         audio.carPass(d.pass.from, d.pass.to, 4.5, 0.22);
+       }
+-      if (sp) {
+-        target[i].position.set(c.box.x + Math.sin(c.box.yaw) * 12, ROAD_Y, c.box.z + Math.cos(c.box.yaw) * 12);
+-        target[i].updateMatrixWorld();
+-      }
+     });
+   });
+ 
+@@ -116,26 +102,13 @@ export function Cars({ active, timeScale }: { active: boolean; timeScale: () =>
+           <mesh geometry={geo.glass} material={m.carGlass} />
+           <mesh geometry={geo.tyres} material={m.tyre} />
+           <mesh geometry={geo.lights} material={m.lamp} />
+-          {/* headlight beam and its reflection in the wet road */}
+-          <spotLight
+-            ref={(s) => (spots.current[i] = s)}
+-            target={target[i]}
+-            position={[0, 0.8, 2.3]}
+-            color="#f1efe6"
+-            intensity={0}
+-            angle={0.45}
+-            penumbra={0.5}
+-            decay={2}
+-            distance={30}
+-          />
++          {/* the headlights' beam on the wet road (drawn, not lit: a moving light is paid for by every
++              lit pixel of the street, and a light coming and going recompiles every material in it) */}
+           <mesh material={m.streak} position={[0, 0.02, 6]} rotation={[-Math.PI / 2, 0, Math.PI]}>
+             <planeGeometry args={[1.6, 8]} />
+           </mesh>
+         </group>
+       ))}
+-      {target.map((t, i) => (
+-        <primitive key={`tg${i}`} object={t} />
+-      ))}
+     </group>
+   );
+ }
+diff --git a/src/scenes/city/StreetFurniture.tsx b/src/scenes/city/StreetFurniture.tsx
+index 0f1e530..cbf418a 100644
+--- a/src/scenes/city/StreetFurniture.tsx
++++ b/src/scenes/city/StreetFurniture.tsx
+@@ -77,15 +77,14 @@ export function StreetFurniture({ active }: { active: boolean }) {
+     return b.build();
+   }, []);
+ 
+-  // real lights only for the lamps near the visitor's path; the rest glow
++  // real lights only for the lamps near the visitor's path (to the fight at z -34 and the car beyond it); the rest glow
++  // (every light is paid for by every lit pixel: the pair at z -63, far down the street, only glow)
+   const near = useMemo(
+     () => [
+       { p: [LAMP_X - 1.6, LAMP_H - 0.3, -27], shadow: false },
+       { p: [LAMP_X - 1.6, LAMP_H - 0.3, -45], shadow: true },
+-      { p: [LAMP_X - 1.6, LAMP_H - 0.3, -63], shadow: false },
+       { p: [-LAMP_X + 1.6, LAMP_H - 0.3, -27], shadow: false },
+       { p: [-LAMP_X + 1.6, LAMP_H - 0.3, -45], shadow: false },
+-      { p: [-LAMP_X + 1.6, LAMP_H - 0.3, -63], shadow: false },
+       { p: [PLAZA_LAMPS[0][0] - 0.9, LAMP_H - 0.3, PLAZA_LAMPS[0][1]], shadow: false },
+       { p: [PLAZA_LAMPS[1][0] - 0.9, LAMP_H - 0.3, PLAZA_LAMPS[1][1]], shadow: true },
+     ],
+diff --git a/src/scenes/station/Lighting.tsx b/src/scenes/station/Lighting.tsx
+index 290850b..09fa012 100644
+--- a/src/scenes/station/Lighting.tsx
++++ b/src/scenes/station/Lighting.tsx
+@@ -8,6 +8,12 @@ import { CONCOURSE, DOOR_Z, HALL_CX, MAST_X, MAST_Z, TRACKS } from './layout';
+ import { FLICKER_MAST, SHADOW_MASTS } from './lighting-config';
+ 
+ const MAST_INTENSITY = 150;
++/**
++ * The masts that carry a real light: those ahead of where you start (the platform runs on behind
++ * the door, 29 m and more, where the camera never looks). Every light is paid for by every lit
++ * pixel of the frame, so the ones behind you are only their glowing lamps (Furniture).
++ */
++const LIT_Z = MAST_Z.filter((z) => z < 20);
+ 
+ /**
+  * Night lighting for the hall. Real light sources do the work: one spotlight per
+@@ -21,7 +27,7 @@ export function Lighting({ active = true }: { active?: boolean }) {
+   const flickerColor = useMemo(() => materials().lampLensFlicker.color.clone(), []);
+ 
+   // Spot targets must live in the scene graph for their matrices to update.
+-  const targets = useMemo(() => MAST_Z.map((z) => {
++  const targets = useMemo(() => LIT_Z.map((z) => {
+     const o = new Object3D();
+     o.position.set(MAST_X, 0, z);
+     return o;
+@@ -63,7 +69,7 @@ export function Lighting({ active = true }: { active?: boolean }) {
+       {targets.map((t, i) => (
+         <primitive key={`t${i}`} object={t} />
+       ))}
+-      {MAST_Z.map((z, i) => {
++      {LIT_Z.map((z, i) => {
+         const shadow = SHADOW_MASTS.includes(i);
+         return (
+           <spotLight
+diff --git a/src/scenes/station/lighting-config.ts b/src/scenes/station/lighting-config.ts
+index 8ef65e9..5d82979 100644
+--- a/src/scenes/station/lighting-config.ts
++++ b/src/scenes/station/lighting-config.ts
+@@ -1,4 +1,4 @@
+ /** Index into MAST_Z of the one luminaire with a tired tube. Far enough to be a detail, not a distraction. */
+ export const FLICKER_MAST = 1;
+ /** Masts whose spotlights cast shadows: the ones around the arrival door. */
+-export const SHADOW_MASTS = [5, 6, 7];
++export const SHADOW_MASTS = [5, 6];
+diff --git a/src/ui/Preloader.tsx b/src/ui/Preloader.tsx
+index a70e59c..a137ec2 100644
+--- a/src/ui/Preloader.tsx
++++ b/src/ui/Preloader.tsx
+@@ -9,6 +9,8 @@ import { story } from '../core/store';
+ import { pixelCover, pixelReveal } from './pixelReveal';
+ import { SoundChoice, mountSoundChoice } from './soundChoice';
+ import { showTitleCard } from './titleCards';
++import { takeResume } from './resume';
++import { goToChapter } from './chapterTransition';
+ 
+ /**
+  * The preloader (Figma "Drunkfurt": Preloader-Start → Preloader-Final), a
+@@ -225,14 +227,20 @@ export function Preloader() {
+         await decodeIn(status, 380, 0);
+         await wait(220);
+         if (!alive) return;
+-        // the preloader leaves in the transition's blocks; only once it has gone does the sound choice come in
+-        const uncover = await pixelCover(PAGE_BG, 'up');
+-        if (!alive) return uncover();
+-        el.classList.add('is-choosing');
+-        el.setAttribute('aria-busy', 'false');
+-        choice = mountSoundChoice(q<HTMLElement>('.pl-sound'));
+-        uncover();
+-        const on = await choice.chosen;
++        // coming back after the graphics card gave out (ui/resume.ts): the sound as it was, no choice asked
++        const resume = takeResume();
++        let on: boolean;
++        if (resume) on = resume.sound;
++        else {
++          // the preloader leaves in the transition's blocks; only once it has gone does the sound choice come in
++          const uncover = await pixelCover(PAGE_BG, 'up');
++          if (!alive) return uncover();
++          el.classList.add('is-choosing');
++          el.setAttribute('aria-busy', 'false');
++          choice = mountSoundChoice(q<HTMLElement>('.pl-sound'));
++          uncover();
++          on = await choice.chosen;
++        }
+         if (!alive) return;
+         // the choice is the page's sound setting (the click is also the gesture audio needs to start)
+         story.setState({ sound: on });
+@@ -249,7 +257,9 @@ export function Preloader() {
+         });
+         // (the preloader itself is gone by now, removed once the blocks covered it: carry on regardless)
+         pinScroll(false);
+-        showTitleCard(1);
++        // back to the chapter the visitor was in, from its beginning
++        if (resume && resume.chapter > 1) goToChapter(resume.chapter);
++        else showTitleCard(1);
+       } catch (err) {
+         console.error('[preloader]', err);
+       }
+diff --git a/src/ui/resume.ts b/src/ui/resume.ts
+new file mode 100644
+index 0000000..21a3957
+--- /dev/null
++++ b/src/ui/resume.ts
+@@ -0,0 +1,51 @@
++import { chapterOf } from '../core/chapters';
++import { story } from '../core/store';
++import { locate, timeline } from '../core/timeline';
++
++/**
++ * Coming back after the graphics card gave out. A browser can take the page's WebGL away (the
++ * card is reset, it runs out of memory, the driver times out a frame); when it does not hand it
++ * back, the page reloads itself and comes back where the visitor was: the chapter they were in,
++ * from its beginning, with the sound as they had it, and without asking again (the preloader
++ * skips the sound choice). A second loss soon after does not reload again (the stub says so).
++ */
++const KEY = 'drunkfurt:resume';
++/** A resume is used only this soon after it was written (ms). */
++const FRESH = 60_000;
++/** Two losses this close together: not again (ms). */
++const AGAIN = 45_000;
++
++interface Resume {
++  chapter: number;
++  sound: boolean;
++  at: number;
++}
++
++const read = (): Resume | null => {
++  try {
++    const raw = sessionStorage.getItem(KEY);
++    return raw ? (JSON.parse(raw) as Resume) : null;
++  } catch {
++    return null;
++  }
++};
++
++/** Whether the page may reload itself now (it did not just do so). Saves where to come back to. */
++export function saveResume() {
++  const last = read();
++  if (last && Date.now() - last.at < AGAIN) return false;
++  try {
++    const chapter = chapterOf(locate(timeline.progress).id).number;
++    sessionStorage.setItem(KEY, JSON.stringify({ chapter, sound: story.getState().sound, at: Date.now() } satisfies Resume));
++    return true;
++  } catch {
++    return false;
++  }
++}
++
++/** The resume left by a reload a moment ago, if any (kept, so a loss right after it is not reloaded again). */
++export function takeResume(): Resume | null {
++  const r = read();
++  if (!r || Date.now() - r.at > FRESH) return null;
++  return r;
++}
+diff --git a/src/ui/stub.ts b/src/ui/stub.ts
+index 84e4c7c..5ef0b50 100644
+--- a/src/ui/stub.ts
++++ b/src/ui/stub.ts
+@@ -1,5 +1,6 @@
+ import { SITE } from '../scenes/home/monitor';
+ import { TOUCH } from './touch';
++import { saveResume } from './resume';
+ 
+ /**
+  * The page in place of the story where it cannot run as it should: a browser
+@@ -132,7 +133,9 @@ export function watchContextLoss(canvas: HTMLCanvasElement) {
+   let timer = 0;
+   canvas.addEventListener('webglcontextlost', (e) => {
+     e.preventDefault();
+-    timer = window.setTimeout(() => showStub('lost'), 2500);
++    // not handed back in a moment: reload and come back to this chapter (ui/resume.ts);
++    // a second loss soon after a reload shows the stub instead
++    timer = window.setTimeout(() => (saveResume() ? location.reload() : showStub('lost')), 1200);
+   });
+   canvas.addEventListener('webglcontextrestored', () => window.clearTimeout(timer));
+ }
+-- 
+2.43.0
+

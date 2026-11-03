@@ -1,0 +1,200 @@
+From c4c9a824f251d1c3e543a85705f1767b2d962d18 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 23:37:56 +0000
+Subject: [PATCH 7/7] Chapter selector: skipped waits stay passed; finer,
+ whiter pointer trail; none on the preloader
+
+- Going ahead with the selector marks the waits on the way as passed, so a skipped chapter cannot
+  pull the page back to its fight or its letter (ACTION / PRESS D showed in chapter 3); prompts
+  are cleared at the turn and again once the new chapter is on screen.
+- The pointer's trail: 7 px cells, pure white for an exact negative, a little smaller and sparser.
+- No trail on the preloader or the sound choice.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017Yfam9H7FbQFsBx6yJZ8yW
+---
+ README.md                   |  6 ++++++
+ src/App.tsx                 |  3 ++-
+ src/core/timeline.ts        |  8 +++++++-
+ src/ui/chapterTransition.ts | 16 ++++++++++++++--
+ src/ui/ditherCursor.ts      | 17 ++++++++++-------
+ 5 files changed, 39 insertions(+), 11 deletions(-)
+
+diff --git a/README.md b/README.md
+index 845d86a..a9f6d57 100644
+--- a/README.md
++++ b/README.md
+@@ -1081,6 +1081,12 @@ Measured in a headless browser, at 1280 × 720 (video memory for textures, progr
+ - **Sound away from the page**: leaving it (another tab, the window minimised, another app on a
+   phone) fades the sound out and stops the audio; coming back brings it back as it was
+   (`AudioDirector.setAway`). The visitor's own sound setting is untouched.
++- **Going ahead with the chapter selector** passes the waits on the way for good (`Gate.passed`):
++  a chapter skipped that way cannot pull the page back to its fight or its letter (an episode off
++  screen cannot open its own waits), and whatever the page was asking for is cleared at the turn.
++  Playing a chapter again from its beginning makes its waits count again.
++- **The pointer's trail**: fine 7 px glyphs in pure white (the difference blend makes them an exact
++  negative), a little smaller and sparser than before; none on the preloader or the sound choice.
+ - **The chapter selector** closes by itself once it has taken you to a chapter, and stays closed
+   under a pointer still resting on it until the pointer leaves (or a new touch, or focus).
+ 
+diff --git a/src/App.tsx b/src/App.tsx
+index ebd8d62..56f66f3 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -10,7 +10,7 @@ import { Stylizer, stylize } from './render/Stylizer';
+ import { FrameGrab } from './render/FrameGrab';
+ import { chapterOf, chapterReadiness } from './core/chapters';
+ import { preloadRoom } from './scenes/home/RoomScene';
+-import { installChapterTransitions } from './ui/chapterTransition';
++import { goToChapter, installChapterTransitions } from './ui/chapterTransition';
+ import { Overlay } from './ui/Overlay';
+ import { watchContextLoss } from './ui/stub';
+ import { Preloader } from './ui/Preloader';
+@@ -333,6 +333,7 @@ export function App() {
+         EPISODES,
+         encounter,
+         encounterAt,
++        goToChapter,
+         get scene() {
+           return (window as unknown as { __scene?: unknown }).__scene;
+         },
+diff --git a/src/core/timeline.ts b/src/core/timeline.ts
+index 2591051..110b7f1 100644
+--- a/src/core/timeline.ts
++++ b/src/core/timeline.ts
+@@ -244,6 +244,12 @@ export interface Gate {
+   /** Local progress of the episode where the story waits. */
+   at: number;
+   open: boolean;
++  /**
++   * Gone past by the chapter selector (a later chapter was chosen): the story no longer waits
++   * here, whatever the episode's own state says (its letter unread, its fight not fought), until
++   * the chapter is played again from its beginning (ui/chapterTransition.ts `resetChapter`).
++   */
++  passed?: boolean;
+ }
+ export const gates: Gate[] = [];
+ 
+@@ -255,7 +261,7 @@ export function globalProgress(id: EpisodeId, local: number) {
+ /** The furthest progress currently allowed by closed gates. */
+ export function gateLimit() {
+   let limit = 1;
+-  for (const g of gates) if (!g.open) limit = Math.min(limit, globalProgress(g.episode, g.at));
++  for (const g of gates) if (!g.open && !g.passed) limit = Math.min(limit, globalProgress(g.episode, g.at));
+   return limit;
+ }
+ 
+diff --git a/src/ui/chapterTransition.ts b/src/ui/chapterTransition.ts
+index afba8cc..e121916 100644
+--- a/src/ui/chapterTransition.ts
++++ b/src/ui/chapterTransition.ts
+@@ -36,8 +36,14 @@ const frames = (n: number) =>
+   });
+ const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<void>((r) => window.setTimeout(r, ms))]);
+ 
+-/** Puts a chapter's episodes back to their beginning. */
++/**
++ * Puts a chapter's episodes back to their beginning. The waits of this chapter and every later
++ * one count again (a chapter played from its beginning is played as it comes, whatever the
++ * chapter selector skipped before).
++ */
+ export function resetChapter(n: number) {
++  const later = new Set(CHAPTERS.filter((c) => c.number >= n).flatMap((c) => c.episodes as string[]));
++  for (const g of gates) if (later.has(g.episode)) g.passed = false;
+   const ch = CHAPTERS.find((c) => c.number === n);
+   for (const id of ch?.episodes ?? []) {
+     try {
+@@ -75,7 +81,9 @@ export function goToChapter(n: number) {
+   const target = chapterStarts()[n - 1];
+   if (target === undefined) return;
+   const forward = target > timeline.progress + 1e-4;
+-  if (forward) for (const g of gates) if (globalProgress(g.episode, g.at) < target) g.open = true;
++  // the waits on the way there are passed for good: an episode that is not on screen cannot open
++  // its own (a letter not read, say), and must not pull the page back to it
++  if (forward) for (const g of gates) if (globalProgress(g.episode, g.at) < target) (g.open = true), (g.passed = true);
+   void turnTo(target, forward);
+ }
+ 
+@@ -99,6 +107,8 @@ async function turnTo(target: number, forward: boolean) {
+       document.body.appendChild(outgoing);
+     }
+     resetChapter(chapter.number);
++    // whatever the page was asking for (defend, the letter, the screen) belongs to where it was
++    story.setState({ prompt: null });
+     jumpTo(target);
+     // the chapter's world on screen, drawn a few times (its shaders compiled), or give up waiting after 4 s
+     const id = locate(target).id;
+@@ -106,6 +116,8 @@ async function turnTo(target: number, forward: boolean) {
+       (async () => {
+         while (story.getState().episode !== id) await frames(1);
+         await frames(4);
++        // (and again once it is on screen: the chapter left behind may have asked once more on its way out)
++        if (story.getState().prompt && story.getState().prompt !== 'monitor') story.setState({ prompt: null });
+       })(),
+       4000,
+     );
+diff --git a/src/ui/ditherCursor.ts b/src/ui/ditherCursor.ts
+index 691a866..6d031e0 100644
+--- a/src/ui/ditherCursor.ts
++++ b/src/ui/ditherCursor.ts
+@@ -17,7 +17,7 @@ import { TOUCH } from './touch';
+  *  - only the cells near the trail are worked out, in a grid; nothing is
+  *    drawn when the pointer rests and the trail has gone.
+  *
+- * Grey glyphs drawn with `mix-blend-mode: difference`: a negative of the page
++ * White glyphs drawn with `mix-blend-mode: difference`: an exact negative of the page
+  * under them (light over the dark night, dark over the white screens).
+  * Not on touch screens, not with reduced motion.
+  *
+@@ -26,9 +26,10 @@ import { TOUCH } from './touch';
+  * is there fades), and a pointer at rest (REST_S) leaves none either, so
+  * nothing sits on what you are looking at.
+  */
+-const CELL = 11;
++/** Size of a glyph's cell (CSS px): small, so the trail reads as a fine texture, not as tiles. */
++const CELL = 7;
+ /** Radius of the stroke at the pointer (CSS px); it narrows to TAPER of that at the end of the tail. */
+-const RADIUS = 78;
++const RADIUS = 62;
+ const TAPER = 0.35;
+ /** How long a point of the trail lasts (s). */
+ const TAIL_S = 0.85;
+@@ -36,13 +37,14 @@ const TAIL_S = 0.85;
+ const STEP = 5;
+ /** How quickly the head follows the pointer (1/s): high is tight, low is loose and liquid. */
+ const FOLLOW = 22;
+-const STRENGTH = 0.85;
++const STRENGTH = 0.72;
+ const MAX_POINTS = 600;
+ /** A pointer still for this long (s) stops laying the trail; what is there melts away. */
+ const REST_S = 0.25;
+ /** What the trail keeps off (the selector, the page's controls). */
+ const OFF = '.tuner, a, button, [role="button"], .sound, .skip, .fx-press, .letter-layer, .stub';
+-const GREY = '150, 150, 150';
++/** Pure white: with the difference blend it is an exact negative of the page under it. */
++const INK = '255, 255, 255';
+ /** Glyphs from empty to full (the brief's Floyd–Steinberg set, inverted). */
+ const GLYPHS = [' ', '▩', '▨', '▧', '▦', '▥', '▤', '▣'];
+ const BAYER = [
+@@ -109,7 +111,8 @@ export function mountDitherCursor() {
+     const t = now / 1000;
+     // the head eases after the pointer; the trail is laid along the way it went, every STEP px
+     // (over a control or the portfolio screen, or at rest: no new trail, the head follows quietly)
+-    const quiet = target.off || monitor.over || now - target.moved > REST_S * 1000;
++    // (and none on the preloader, the sound choice included: its own dots answer the pointer there)
++    const quiet = target.off || monitor.over || now - target.moved > REST_S * 1000 || document.documentElement.classList.contains('is-preloading');
+     if (target.on) {
+       const k = 1 - Math.exp(-FOLLOW * dt);
+       head.x += (target.x - head.x) * k;
+@@ -184,7 +187,7 @@ export function mountDitherCursor() {
+     for (let l = 0; l < LEVELS; l++) {
+       const list = byLevel[l];
+       if (!list.length) continue;
+-      ctx.fillStyle = `rgba(${GREY}, ${((l + 1) / LEVELS).toFixed(3)})`;
++      ctx.fillStyle = `rgba(${INK}, ${((l + 1) / LEVELS).toFixed(3)})`;
+       for (let j = 0; j < list.length; j += 2) {
+         const i = list[j];
+         const col = i % cols;
+-- 
+2.43.0
+

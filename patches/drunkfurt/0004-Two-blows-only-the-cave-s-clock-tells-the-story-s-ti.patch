@@ -1,7 +1,7 @@
 From e4f3686fe9f5a9b7d91132dfc081d8c5edf796fe Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 1 Nov 2026 23:56:12 +0000
-Subject: [PATCH 4/6] Two blows only; the cave's clock tells the story's time;
+Subject: [PATCH 4/7] Two blows only; the cave's clock tells the story's time;
  no sound off the page; the chapter selector closes itself
 
 - The fight plays only the last two blows of the animation, the swing between them quickened so

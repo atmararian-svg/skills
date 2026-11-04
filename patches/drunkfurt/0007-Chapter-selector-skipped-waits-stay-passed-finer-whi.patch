@@ -1,7 +1,7 @@
 From c4c9a824f251d1c3e543a85705f1767b2d962d18 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 3 Nov 2026 23:37:56 +0000
-Subject: [PATCH 7/7] Chapter selector: skipped waits stay passed; finer,
+Subject: [PATCH 7/8] Chapter selector: skipped waits stay passed; finer,
  whiter pointer trail; none on the preloader
 
 - Going ahead with the selector marks the waits on the way as passed, so a skipped chapter cannot

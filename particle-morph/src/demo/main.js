@@ -1,6 +1,6 @@
 // Demo harness only: wires ParticleMorphScene to scroll + dev controls.
 import GUI from 'lil-gui';
-import { ParticleMorphScene, KNIGHT_KATANA_MODELS } from '../particle-morph/index.js';
+import { ParticleMorphScene, SHOWCASE_MODELS } from '../particle-morph/index.js';
 import { ScrollController } from '../particle-morph/ScrollController.js';
 
 const params = new URLSearchParams(location.search);
@@ -15,7 +15,7 @@ window.addEventListener('error', (e) => fail(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => fail(e.reason));
 
 const scene = new ParticleMorphScene(stage, {
-  models: KNIGHT_KATANA_MODELS(import.meta.env.BASE_URL, import.meta.env.VITE_MODEL_EXT || 'glb'),
+  models: SHOWCASE_MODELS(import.meta.env.BASE_URL, import.meta.env.VITE_MODEL_EXT || 'glb'),
   cssBlendTarget: 'container',
   blendMode: params.get('blend') === 'shader' ? 'shader' : 'css',
   particleCount: Number(params.get('count')) || 40000,
@@ -62,6 +62,9 @@ const gui = new GUI({ title: 'dev' });
 if (params.has('nogui')) gui.hide();
 const set = (k) => (v) => scene.updateConfig({ [k]: v });
 gui.add(ui, 'progress', 0, 1, 0.001).name('morph progress').listen().onChange((v) => scroll.scrollToProgress(v));
+const names = scene.config.models.map((m, i) => m.name || `model ${i + 1}`);
+ui.model = names[0];
+gui.add(ui, 'model', names).name('jump to model').onChange((n) => scroll.scrollToProgress(scene.progressForModel(names.indexOf(n))));
 gui.add(ui, 'particleCount', 5000, 100000, 1000).onFinishChange(set('particleCount'));
 gui.add(ui, 'interactionRadius', 0.05, 0.5, 0.01).onChange(set('interactionRadius'));
 gui.add(ui, 'repulsionStrength', 0, 3, 0.05).onChange(set('repulsionStrength'));
@@ -82,7 +85,7 @@ look.add(ui, 'blendMode', ['css', 'shader']).onChange(set('blendMode'));
 const tick = () => {
   ui.progress = scroll.progress;
   const s = scene.stats;
-  status.textContent = `${s.fps} fps · ${s.particles.toLocaleString()} particles · morph ${scene.morphProgress.toFixed(3)}${s.hovering ? ' · hover' : ''}`;
+  status.textContent = `${s.fps} fps · ${s.particles.toLocaleString()} particles · morph ${scene.morphProgress.toFixed(3)} · ${names[scene.activeModel]}${s.hovering ? ' · hover' : ''}`;
   requestAnimationFrame(tick);
 };
 tick();

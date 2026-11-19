@@ -28,7 +28,10 @@ void main(){
 
   // normal of the current morph state → tonal shading for a sculpted read
   float e = particleEase(texture2D(tMeta, aRef));
-  vec3 n = mix(texture2D(tNormalA, aRef).xyz, texture2D(tNormalB, aRef).xyz, e);
+  vec4 nA = texture2D(tNormalA, aRef);
+  vec4 nB = texture2D(tNormalB, aRef);
+  vec3 n = mix(nA.xyz, nB.xyz, e);
+  float surfaceTone = mix(nA.w, nB.w, e); // 1 unless the model maps texture brightness to ink
   vec3 nv = normalize(normalMatrix * n + 1e-5);
   float lit = 0.5 + 0.5 * dot(nv, uLightDir);
   float tone = 1.0 - uShading * lit * 0.8;
@@ -44,7 +47,7 @@ void main(){
   float size = uSize * sizeMul * uPixelRatio * uViewportScale * (uRefDistance / depth);
   size *= 1.0 - 0.3 * heat;
 
-  float alpha = uOpacity * (0.35 + 0.65 * aRand.y) * tone * depthCue * (1.0 - 0.3 * heat);
+  float alpha = uOpacity * (0.35 + 0.65 * aRand.y) * tone * surfaceTone * depthCue * (1.0 - 0.3 * heat);
   // sub-pixel points: keep 1px footprint, fade instead (avoids shimmering)
   float minSize = uPixelRatio;
   if (size < minSize) { alpha *= size / minSize; size = minSize; }

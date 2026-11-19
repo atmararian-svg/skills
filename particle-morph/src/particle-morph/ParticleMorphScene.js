@@ -8,11 +8,11 @@ import { ParticleRenderer } from './ParticleRenderer.js';
 import { CursorInteraction } from './CursorInteraction.js';
 
 /**
- * ParticleMorphScene: the reusable entry point.
+ * ParticleMorphScene: the reusable entry point (2…N models, one particle system).
  *
  *   const pms = new ParticleMorphScene(containerEl, { models: [a, b], ...overrides });
  *   await pms.load();
- *   pms.setMorphProgress(0.4);  // 0 = model A, 1 = model B
+ *   pms.setMorphProgress(0.4);  // 0 = first model … 1 = last model
  *   pms.dispose();              // on unmount
  *
  * It owns its renderer, camera, rAF loop (optional), ResizeObserver and pointer
@@ -67,7 +67,7 @@ export class ParticleMorphScene {
 
   /** Loads both models (config.models or the given specs), builds the particle system. */
   async load(models = this.config.models, { onProgress } = {}) {
-    if (!models || models.length !== 2) throw new Error('ParticleMorphScene.load: exactly two model specs required');
+    if (!models || models.length < 2) throw new Error('ParticleMorphScene.load: at least two model specs required');
     const t0 = performance.now();
     const loader = new ModelLoader();
     let done = 0;
@@ -98,14 +98,14 @@ export class ParticleMorphScene {
     );
     this.stats.sampleMs = Math.round(performance.now() - t0);
 
-    this.morph = new ParticleMorphSystem(clouds[0], clouds[1], {
-      heightA: this.sources[0].size.y,
-      heightB: this.sources[1].size.y,
+    this.morph = new ParticleMorphSystem(clouds, {
+      // reference size for the interaction radius: visible height, or half the width for wide/flat objects
+      heights: this.sources.map((s) => Math.max(s.size.y, 0.5 * s.size.x)),
     });
     this.stats.matchMs = Math.round(this.morph.matchTimeMs);
-    this.stats.meanTravel = +this.morph.distanceStats.mean.toFixed(3);
+    this.stats.meanTravel = this.morph.distanceStats.map((d) => d.mean);
     this.morph.setParams(cfg);
-    this.morph.setProgress(this._progress);
+    this.morph.setSequence(this.sequencePosition);
 
     this.simulation = new ParticleSimulation(this.renderer, this.morph, { introScatter: this._built ? 0 : 0.6 });
     this.simulation.setParams(cfg);
@@ -121,7 +121,7 @@ export class ParticleMorphScene {
 
   // ───────────────────────────────────────────────────────────── public API
 
-  /** 0 → model A, 1 → model B. Smoothed internally (config.morphSmoothing). */
+  /** 0 → first model … 1 → last model (model k at k/(N-1)). Smoothed internally (config.morphSmoothing). */
   setMorphProgress(p, { immediate = false } = {}) {
     this._progressTarget = Math.min(1, Math.max(0, p));
     if (immediate) this._progress = this._progressTarget;
@@ -129,6 +129,36 @@ export class ParticleMorphScene {
 
   get morphProgress() {
     return this._progress;
+  }
+
+  /** Number of loaded models (morph states). */
+  get modelCount() {
+    return this.sources?.length ?? this.config.models.length;
+  }
+
+  /**
+   * Position in the model sequence: 0 = first model … N-1 = last model.
+   * Global progress is split into N-1 equal transitions; `morphHold` keeps each
+   * model fully formed for a short stretch around its own scroll position.
+   */
+  get sequencePosition() {
+    const n = this.modelCount;
+    const x = this._progress * (n - 1);
+    const seg = Math.min(n - 2, Math.floor(x));
+    const f = x - seg;
+    const h = Math.min(0.45, Math.max(0, this.config.morphHold));
+    const local = Math.min(1, Math.max(0, (f - h) / (1 - 2 * h)));
+    return seg + local;
+  }
+
+  /** Global progress (0..1) at which model `index` is fully formed. */
+  progressForModel(index) {
+    return index / (this.modelCount - 1);
+  }
+
+  /** Index of the model closest to the current state. */
+  get activeModel() {
+    return Math.round(this.sequencePosition);
   }
 
   /** Manual pointer input (use with autoPointer: false, or to synthesise input). */
@@ -185,7 +215,8 @@ export class ParticleMorphScene {
     this._last = performance.now();
     const loop = (now) => {
       this._raf = requestAnimationFrame(loop);
-      const dt = Math.min(0.1, (now - this._last) / 1000);
+      // rAF timestamps can predate start() (e.g. after a long synchronous load) → clamp at 0
+      const dt = Math.min(0.1, Math.max(0, (now - this._last) / 1000));
       this._last = now;
       this.update(dt);
       this.render();
@@ -206,11 +237,12 @@ export class ParticleMorphScene {
     const a = 1 - Math.exp(-dt * cfg.morphSmoothing);
     this._progress += (this._progressTarget - this._progress) * a;
     if (Math.abs(this._progressTarget - this._progress) < 1e-5) this._progress = this._progressTarget;
-    this.morph.setProgress(this._progress);
+    const P = this.sequencePosition;
+    this.morph.setSequence(P);
 
-    const { hit } = this.cursor.update(dt, this._progress, cfg);
+    const { hit } = this.cursor.update(dt, P, cfg);
     this.stats.hovering = hit;
-    const radius = cfg.interactionRadius * this.morph.heightAt(this._progress);
+    const radius = cfg.interactionRadius * this.morph.heightAt(P);
     this.simulation.setPointer(this.cursor.local, this.cursor.localVel, this.cursor.strength, radius);
     this.simulation.step(dt, cfg.simulationHz, cfg.maxSubsteps);
     this.particles.update();

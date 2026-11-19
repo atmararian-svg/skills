@@ -44,16 +44,21 @@ ModelLoader.prototype._loadGLTF = async function (spec, onProgress) {
   return this.loader.loadAsync(spec.url, onProgress);
 };
 
-export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [] } = {}) {
+export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [], textureInk = 0, inkGain = 1 } = {}) {
   root.updateMatrixWorld(true);
 
+  // Optional surface tone: material colour × base-colour texture brightness, used by
+  // the point-cloud sampler to modulate particle ink (dark keys → more ink). Collected
+  // only for models that ask for it (`textureInk` > 0).
+  const tone = textureInk > 0 ? new ToneCollector() : null;
   const parts = [];
   root.traverse((obj) => {
     if (!obj.isMesh || obj.isSkinnedMesh || !obj.geometry?.attributes?.position) return;
     if (obj.geometry.drawRange && obj.geometry.drawRange.count === 0) return;
     let g = obj.geometry.clone();
+    if (tone) tone.addMesh(g, obj.material);
     for (const name of Object.keys(g.attributes)) {
-      if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+      if (name !== 'position' && name !== 'normal' && !(tone && name.startsWith('tone'))) g.deleteAttribute(name);
     }
     g.morphAttributes = {};
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -72,6 +77,8 @@ export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [
   const positions = new Float32Array(vCount * 3);
   const normals = new Float32Array(vCount * 3);
   const indices = new Uint32Array(iCount);
+  const toneUv = tone ? new Float32Array(vCount * 2) : null;
+  const toneSrc = tone ? new Float32Array(vCount * 2) : null; // (texture id or -1, base luminance)
   let vOff = 0;
   let iOff = 0;
   for (const g of parts) {
@@ -84,6 +91,10 @@ export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [
       normals[(vOff + i) * 3] = n.getX(i);
       normals[(vOff + i) * 3 + 1] = n.getY(i);
       normals[(vOff + i) * 3 + 2] = n.getZ(i);
+    }
+    if (tone) {
+      toneUv.set(g.attributes.toneUv.array, vOff * 2);
+      toneSrc.set(g.attributes.toneSrc.array, vOff * 2);
     }
     if (g.index) {
       for (let i = 0; i < g.index.count; i++) indices[iOff + i] = g.index.getX(i) + vOff;
@@ -100,6 +111,12 @@ export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [
   geometry.setAttribute('position', new BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new BufferAttribute(normals, 3));
   geometry.setIndex(new BufferAttribute(indices, 1));
+  if (tone) {
+    geometry.setAttribute('toneUv', new BufferAttribute(toneUv, 2));
+    geometry.setAttribute('toneSrc', new BufferAttribute(toneSrc, 2));
+    geometry.userData.toneTextures = tone.textures;
+    geometry.userData.textureInk = textureInk;
+  }
 
   // ── orient
   const rot = new Matrix4();
@@ -120,6 +137,7 @@ export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [
   geometry.scale(s, s, s);
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
+  geometry.userData.inkGain = inkGain;
 
   return {
     geometry,
@@ -127,6 +145,75 @@ export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [
     triangleCount: indices.length / 3,
     meshCount: parts.length,
   };
+}
+
+/** Gathers per-vertex material tone + downscaled luminance copies of base-colour textures. */
+class ToneCollector {
+  constructor() {
+    this.textures = [];
+    this._ids = new Map();
+  }
+
+  textureId(tex) {
+    if (!tex) return -1;
+    if (this._ids.has(tex)) return this._ids.get(tex);
+    let id = -1;
+    const img = tex.image;
+    try {
+      if (img && img.width && img.height) {
+        const s = Math.min(1, 512 / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * s));
+        const h = Math.max(1, Math.round(img.height * s));
+        const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, h);
+        const px = ctx.getImageData(0, 0, w, h).data;
+        const lum = new Float32Array(w * h);
+        for (let i = 0; i < w * h; i++) lum[i] = (0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2]) / 255;
+        tex.updateMatrix();
+        this.textures.push({ w, h, lum, matrix: tex.matrix.elements.slice(), flipY: tex.flipY, repeat: tex.wrapS !== 1001 });
+        id = this.textures.length - 1;
+      }
+    } catch (e) {
+      console.warn('ModelLoader: texture not readable, using material colour only', e);
+    }
+    this._ids.set(tex, id);
+    return id;
+  }
+
+  addMesh(g, material) {
+    const count = g.attributes.position.count;
+    const uv = g.attributes.uv;
+    const uvArr = new Float32Array(count * 2);
+    if (uv) for (let i = 0; i < count; i++) { uvArr[i * 2] = uv.getX(i); uvArr[i * 2 + 1] = uv.getY(i); }
+    const src = new Float32Array(count * 2);
+    const mats = Array.isArray(material) ? material : [material];
+    const describe = (m) => {
+      if (!m) return [-1, 1];
+      const c = m.color;
+      // perceptual (sRGB-ish) luminance of the linear base colour factor
+      const base = c ? Math.pow(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, 1 / 2.2) : 1;
+      // base-colour texture; otherwise an emissive texture (e.g. a screen image) shows through
+      if (m.map) return [uv ? this.textureId(m.map) : -1, base];
+      if (m.emissiveMap) return [uv ? this.textureId(m.emissiveMap) : -1, 1];
+      return [-1, base];
+    };
+    const assign = (m, verts) => {
+      const [id, base] = describe(m);
+      for (const v of verts) { src[v * 2] = id; src[v * 2 + 1] = base; }
+    };
+    if (Array.isArray(material) && g.groups.length) {
+      for (const grp of g.groups) {
+        const verts = [];
+        for (let i = grp.start; i < grp.start + grp.count; i++) verts.push(g.index ? g.index.getX(i) : i);
+        assign(mats[grp.materialIndex], verts);
+      }
+    } else {
+      assign(mats[0], Array.from({ length: count }, (_, i) => i));
+    }
+    g.setAttribute('toneUv', new BufferAttribute(uvArr, 2));
+    g.setAttribute('toneSrc', new BufferAttribute(src, 2));
+  }
 }
 
 function disposeObject(root) {

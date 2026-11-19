@@ -65,7 +65,7 @@ export class ParticleSimulation {
 
   /** Start at the morph state matching the current progress (no pop on rebuild). */
   _initialState(pos, vel, introScatter) {
-    const { a, b, meta } = this.morph.initialData;
+    const { a, b, meta } = this.morph.segmentData(this.morph.segment);
     const p = this.morph.uniforms.uProgress.value;
     const spread = this.morph.uniforms.uSpread.value;
     const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -106,7 +106,7 @@ export class ParticleSimulation {
   /** Fixed-timestep stepping; frame-rate independent behaviour. */
   step(dt, hz = 120, maxSubsteps = 4) {
     const h = 1 / hz;
-    this._acc = Math.min(this._acc + dt, h * maxSubsteps);
+    this._acc = Math.min(Math.max(0, this._acc + (dt > 0 ? dt : 0)), h * maxSubsteps);
     this.uniforms.uDt.value = h;
     while (this._acc >= h) {
       this.time += h;

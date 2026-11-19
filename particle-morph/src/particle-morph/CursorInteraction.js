@@ -71,7 +71,7 @@ export class CursorInteraction {
     this.hasPointer = false;
   }
 
-  /** @param {import('three').BufferGeometry[]} geometries [A, B] in normalised space */
+  /** @param {import('three').BufferGeometry[]} geometries one per model, in normalised space */
   setProxies(geometries) {
     this.disposeProxies();
     this.proxies = geometries.map((g) => {
@@ -95,10 +95,10 @@ export class CursorInteraction {
 
   /**
    * @param {number} dt
-   * @param {number} progress current (smoothed) morph progress 0..1
+   * @param {number} sequence current sequence position (0 = first model … N-1 = last)
    * @param {object} cfg config
    */
-  update(dt, progress, cfg) {
+  update(dt, sequence, cfg) {
     // ── Look At: damped spring toward a target rotation
     const tx = this.hasPointer ? -this.ndc.y * cfg.lookAtIntensity * 0.75 : 0;
     const ty = this.hasPointer ? this.ndc.x * cfg.lookAtIntensity : 0;
@@ -119,10 +119,10 @@ export class CursorInteraction {
     let hit = null;
     if (cfg.interactionEnabled && this.inside && this.proxies.length) {
       this.raycaster.setFromCamera(this.ndc, this.camera);
-      const weights = [1 - progress, progress];
       let best = Infinity;
       for (let i = 0; i < this.proxies.length; i++) {
-        if (weights[i] < 0.2) continue;
+        // presence of model i: 1 when fully formed, fading to 0 one model away
+        if (1 - Math.abs(sequence - i) < 0.2) continue;
         this._hits.length = 0;
         this.raycaster.intersectObject(this.proxies[i], false, this._hits);
         const h0 = this._hits[0];

@@ -23,7 +23,8 @@ export const DEFAULT_CONFIG = {
   },
 
   // ── Morphing ────────────────────────────────────────────────────────────
-  morphProgress: 0, // 0 = model A (knight), 1 = model B (katana)
+  morphProgress: 0, // 0 = first model … 1 = last model (model k sits at k / (N-1))
+  morphHold: 0.1, // fraction of each transition, at both ends, where the model stays fully formed
   morphSmoothing: 6, // how fast the internal progress follows the requested progress (1/s)
   morphSpread: 0.45, // stagger: 0 = every particle moves together, ~0.6 = strong travelling wave
   morphScatter: 0.32, // how far particles bulge outward mid-flight (world units)
@@ -64,27 +65,66 @@ export const DEFAULT_CONFIG = {
   simulationHz: 120, // fixed simulation step rate
   maxSubsteps: 4,
 
-  // Models: [A, B]. `orient` is a list of [axis, degrees] rotations applied in order,
+  // Models: [first, …, last] (2 or more). `orient` is a list of [axis, degrees] rotations applied in order,
   // then the model is centred and scaled so that its `fitAxis` dimension equals `fitSize`.
+  // Optional `textureInk` (0..1) maps material/texture brightness to particle ink (0 = off),
+  // and `inkGain` scales ink per particle for this model (1 = unchanged).
   models: [],
 };
 
-/** Asset presets for the two GLB files shipped with the demo. */
-export const KNIGHT_KATANA_MODELS = (base = '/', ext = 'glb') => [
+/**
+ * Asset preset for the five GLB files shipped with the demo, in sequence order.
+ * Every model is normalised into the same space (centred, uniform scale), keeping its proportions.
+ * `fitSize` is chosen per model so the five objects have a balanced visual weight in the frame.
+ */
+export const SHOWCASE_MODELS = (base = '/', ext = 'glb') => [
   {
+    name: 'Chess Knight',
     url: `${base}models/chess_knight_protector.${ext}`,
     fitSize: 2.35,
     fitAxis: 'y',
     orient: [['y', 205]],
   },
   {
+    name: 'Pull-up Station',
+    url: `${base}models/adjustable_pull-up_dip_station.${ext}`,
+    fitSize: 2.4,
+    fitAxis: 'y',
+    orient: [['y', -15]],
+  },
+  {
+    name: 'Katana',
     url: `${base}models/katana_with_sheath.${ext}`,
     fitSize: 3.5,
     fitAxis: 'max',
     // lies along +Z (handle at +Z): roll slightly, turn to face camera, tilt diagonally
     orient: [['z', 12], ['y', 90], ['x', 18], ['z', 32]],
   },
+  {
+    name: 'Piano',
+    url: `${base}models/arturia_keylab_88_mk2.${ext}`,
+    fitSize: 3.5,
+    fitAxis: 'x',
+    orient: [['y', -18], ['x', 48]],
+    textureInk: 0.85, // key pattern comes from the texture, not the geometry
+    inkGain: 1.8, // wide, face-on surfaces: more ink per particle to match the others' density
+  },
+  {
+    name: 'MacBook',
+    url: `${base}models/macbook_pro_14_m5.${ext}`,
+    fitSize: 2.9,
+    fitAxis: 'x',
+    orient: [['y', -32], ['x', 24]],
+    textureInk: 0.7, // dark keyboard / screen image vs. silver body
+    inkGain: 1.7,
+  },
 ];
+
+/** The original two-model preset (knight → katana). */
+export const KNIGHT_KATANA_MODELS = (base = '/', ext = 'glb') => {
+  const m = SHOWCASE_MODELS(base, ext);
+  return [m[0], m[2]];
+};
 
 export function mergeConfig(base, patch = {}) {
   const out = { ...base };

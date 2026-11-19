@@ -54,6 +54,7 @@ export function samplePointCloud(geometry, count, opts = {}) {
   const M = Math.max(count, Math.ceil(count * Math.max(1, oversample)));
   const cp = new Float32Array(M * 3);
   const cn = new Float32Array(M * 3);
+  const toneInfo = geometry.attributes.toneSrc ? { tri: new Uint32Array(M), bary: new Float32Array(M * 2) } : null;
   let t = 0;
   for (let i = 0; i < M; i++) {
     const u = ((i + rand()) / M) * total;
@@ -64,6 +65,7 @@ export function samplePointCloud(geometry, count, opts = {}) {
     const s = Math.sqrt(rand());
     const r2 = rand();
     const w0 = 1 - s, w1 = s * (1 - r2), w2 = s * r2;
+    if (toneInfo) { toneInfo.tri[i] = t; toneInfo.bary[i * 2] = w1; toneInfo.bary[i * 2 + 1] = w2; }
     for (let k = 0; k < 3; k++) {
       cp[i * 3 + k] = P[a + k] * w0 + P[b + k] * w1 + P[c + k] * w2;
       cn[i * 3 + k] = N[a + k] * w0 + N[b + k] * w1 + N[c + k] * w2;
@@ -90,8 +92,11 @@ export function samplePointCloud(geometry, count, opts = {}) {
 
   const positions = new Float32Array(count * 3);
   const normals = new Float32Array(count * 3);
+  const inkGain = geometry.userData.inkGain ?? 1;
+  const tone = toneInfo || inkGain !== 1 ? new Float32Array(count).fill(1) : null;
   for (let i = 0; i < count; i++) {
     const k = keep[i];
+    if (toneInfo) tone[i] = surfaceTone(geometry, I, toneInfo.tri[k], toneInfo.bary[k * 2], toneInfo.bary[k * 2 + 1]);
     const nx = cn[k * 3], ny = cn[k * 3 + 1], nz = cn[k * 3 + 2];
     // gaussian-ish offset along the normal + a smaller tangential wobble
     const along = (rand() + rand() + rand() - 1.5) * jitter;
@@ -100,7 +105,45 @@ export function samplePointCloud(geometry, count, opts = {}) {
     positions[i * 3 + 2] = cp[k * 3 + 2] + nz * along + (rand() - 0.5) * jitter * 0.5;
     normals[i * 3] = nx; normals[i * 3 + 1] = ny; normals[i * 3 + 2] = nz;
   }
-  return { positions, normals, area: total, count };
+  if (tone) {
+    // textured models: keep the overall ink level in line with untextured ones (only contrast changes),
+    // then apply the model's ink gain (compensates large, face-on surfaces that look sparse)
+    let mean = 0;
+    for (let i = 0; i < count; i++) mean += tone[i] / count;
+    const k = (toneInfo ? 0.92 / Math.max(mean, 0.05) : 1) * inkGain;
+    for (let i = 0; i < count; i++) tone[i] = Math.min(2.5, Math.max(0.12, tone[i] * k));
+  }
+  return { positions, normals, tone, area: total, count };
+}
+
+/**
+ * Ink multiplier for a surface point: 1 on dark surfaces, down to (1 - 0.75·amount) on white ones.
+ * brightness = material colour × base-colour texture (sampled at the interpolated UV).
+ */
+function surfaceTone(geometry, I, t, w1, w2) {
+  const amount = geometry.userData.textureInk;
+  const src = geometry.attributes.toneSrc.array;
+  const uv = geometry.attributes.toneUv.array;
+  const a = I[t * 3], b = I[t * 3 + 1], c = I[t * 3 + 2];
+  const w0 = 1 - w1 - w2;
+  const texId = src[a * 2];
+  let lum = src[a * 2 + 1];
+  if (texId >= 0) {
+    const tex = geometry.userData.toneTextures[texId];
+    let u = uv[a * 2] * w0 + uv[b * 2] * w1 + uv[c * 2] * w2;
+    let v = uv[a * 2 + 1] * w0 + uv[b * 2 + 1] * w1 + uv[c * 2 + 1] * w2;
+    const m = tex.matrix; // 3x3 column-major uv transform (offset / repeat / rotation)
+    const tu = m[0] * u + m[3] * v + m[6];
+    const tv = m[1] * u + m[4] * v + m[7];
+    u = tex.repeat ? tu - Math.floor(tu) : Math.min(1, Math.max(0, tu));
+    v = tex.repeat ? tv - Math.floor(tv) : Math.min(1, Math.max(0, tv));
+    if (tex.flipY) v = 1 - v;
+    const x = Math.min(tex.w - 1, Math.floor(u * tex.w));
+    const y = Math.min(tex.h - 1, Math.floor(v * tex.h));
+    lum *= tex.lum[y * tex.w + x];
+  }
+  const darkness = 1 - Math.min(1, Math.max(0, lum));
+  return 1 - amount * 0.75 * (1 - darkness);
 }
 
 function identity(n) {

@@ -70,15 +70,15 @@ export const DEFAULT_CONFIG = {
 };
 
 /** Asset presets for the two GLB files shipped with the demo. */
-export const KNIGHT_KATANA_MODELS = (base = '/') => [
+export const KNIGHT_KATANA_MODELS = (base = '/', ext = 'glb') => [
   {
-    url: `${base}models/chess_knight_protector.glb`,
+    url: `${base}models/chess_knight_protector.${ext}`,
     fitSize: 2.35,
     fitAxis: 'y',
     orient: [['y', 205]],
   },
   {
-    url: `${base}models/katana_with_sheath.glb`,
+    url: `${base}models/katana_with_sheath.${ext}`,
     fitSize: 3.5,
     fitAxis: 'max',
     // lies along +Z (handle at +Z): roll slightly, turn to face camera, tilt diagonally

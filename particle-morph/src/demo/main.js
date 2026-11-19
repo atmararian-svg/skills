@@ -8,7 +8,7 @@ const stage = document.getElementById('stage');
 const status = document.getElementById('status');
 
 const scene = new ParticleMorphScene(stage, {
-  models: KNIGHT_KATANA_MODELS(import.meta.env.BASE_URL),
+  models: KNIGHT_KATANA_MODELS(import.meta.env.BASE_URL, import.meta.env.VITE_MODEL_EXT || 'glb'),
   cssBlendTarget: 'container',
   blendMode: params.get('blend') === 'shader' ? 'shader' : 'css',
   particleCount: Number(params.get('count')) || 40000,

@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry, Box3, Matrix4, Vector3 } from 'three';
+import { BufferAttribute, BufferGeometry, Box3, Matrix4, TextureLoader, Vector3 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const AXES = { x: new Vector3(1, 0, 0), y: new Vector3(0, 1, 0), z: new Vector3(0, 0, 1) };
@@ -13,6 +13,13 @@ const AXES = { x: new Vector3(1, 0, 0), y: new Vector3(0, 1, 0), z: new Vector3(
 export class ModelLoader {
   constructor(loader = new GLTFLoader()) {
     this.loader = loader;
+    // Decode embedded textures through <img> elements instead of fetch(blob:) +
+    // createImageBitmap. Strict Content-Security-Policies (connect-src without blob:)
+    // block the default path, which would silently drop the textures.
+    loader.register((parser) => {
+      parser.textureLoader = new TextureLoader(parser.options.manager);
+      return { name: 'pm_img_element_textures' };
+    });
   }
 
   /**

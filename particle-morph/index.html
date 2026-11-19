@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Particle Morph Prototype</title>
+    <style>
+      html, body { margin: 0; background: #fff; }
+      /* Fixed stage. It creates a stacking context, so the demo blends the
+         whole stage (cssBlendTarget: 'container') against the page. */
+      #stage { position: fixed; inset: 0; }
+      /* Scroll distance that drives the morph (0 → 1). */
+      #scroll-track { height: 400vh; }
+      #status {
+        position: fixed; left: 16px; bottom: 14px; font: 11px/1.4 ui-monospace, monospace;
+        color: #000; opacity: 0.55; pointer-events: none; white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="scroll-track"></div>
+    <div id="status">loading models…</div>
+    <script type="module" src="/src/demo/main.js"></script>
+  </body>
+</html>

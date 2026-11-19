@@ -57,6 +57,14 @@ npm run test:e2e     # terminal 2 (needs Chromium for Playwright: npx playwright
 
 It saves a screenshot of every model and of every transition at 25/50/75 % to `tests/output/`.
 
+## Handoff package for the site developer
+
+```bash
+npm run handoff   # → handoff-dist/particle-morph-handoff.zip
+```
+
+Assembles the component, models, Russian integration docs, a ready-to-paste Claude Code prompt, a `CLAUDE.md` for the component folder, and tested vanilla-HTML and React/Next.js examples (sources in `handoff/`).
+
 ## Dependencies
 
 | package | version | role |
@@ -248,29 +256,29 @@ All values live in `DEFAULT_CONFIG` (`src/particle-morph/config.js`).
 | parameter | default | effect |
 |---|---|---|
 | `particleCount` | 40000 | particles per model (one shared system). Rebuilds on change |
-| `particleSize` | 1.6 | point diameter in CSS px at the reference camera distance |
+| `particleSize` | 1.25 | point diameter in CSS px at the reference camera distance |
 | `sizeVariation` | 0.7 | per-particle size spread (most fine, a few larger) |
 | `opacity` | 0.85 | ink per particle |
-| `shading` | 0.55 | normal-based tonal shading (sculptural read) |
+| `shading` | 0.76 | normal-based tonal shading (sculptural read) |
 | `backfaceFade` | 0.6 | dims particles on surfaces facing away (less see-through clutter) |
 | `sampling.oversample` | 3 | blue-noise candidate factor (1 = plain random sampling, faster load) |
 | `sampling.jitter` | 0.004 | surface irregularity / grain thickness (world units) |
 | `morphProgress` | 0 | initial progress |
 | `morphHold` | 0.1 | fraction of each transition, at both ends, where the model stays fully formed |
 | `morphSmoothing` | 6 | how fast internal progress follows `setMorphProgress` (1/s) |
-| `morphSpread` | 0.45 | stagger of the travelling wave (0 = all particles together) |
-| `morphScatter` | 0.32 | outward bulge mid-flight |
-| `morphTwist` | 0.7 | swirl mid-flight (radians, sign sets direction) |
+| `morphSpread` | 0.5 | stagger of the travelling wave (0 = all particles together) |
+| `morphScatter` | 1.14 | outward bulge mid-flight |
+| `morphTwist` | 2.24 | swirl mid-flight (radians, sign sets direction) |
 | `morphNoise` | 1.0 | extra flow noise while in flight |
 | `recoverySpeed` | 0.8 | spring stiffness and heat decay: how fast disturbed particles re-form |
 | `springDamping` | 0.55 | spring damping ratio (< 1 overshoots, ≥ 1 no overshoot) |
-| `noiseIntensity` | 0.2 | ambient organic drift |
+| `noiseIntensity` | 0.39 | ambient organic drift |
 | `noiseScale` | 1.6 | spatial frequency of the flow noise |
-| `interactionRadius` | 0.22 | cursor radius as a fraction of the current model's height |
-| `repulsionStrength` | 1.0 | radial push |
+| `interactionRadius` | 0.3 | cursor radius as a fraction of the current model's height |
+| `repulsionStrength` | 2.15 | radial push |
 | `directionalStrength` | 0.8 | push along the cursor's motion (the trail) |
 | `interactionEnabled` | true | hover dispersion on/off |
-| `lookAtIntensity` | 0.15 | max rotation (rad) at the viewport edge |
+| `lookAtIntensity` | 0.37 | max rotation (rad) at the viewport edge |
 | `lookAtStiffness` / `lookAtDamping` | 10 / 0.75 | look-at spring: snappiness / inertia |
 | `blendMode` | `'css'` | `'css'` (mix-blend-mode difference) or `'shader'` (in-canvas difference on `background`) |
 | `cssBlendTarget` | `'canvas'` | element that gets `mix-blend-mode`: `'canvas'` or `'container'` |

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Particle morph: пример без сборщика</title>
+    <!--
+      Пример внедрения без сборщика: зависимости подключаются с CDN через import map.
+      Как открыть: запустить любой статический сервер из КОРНЯ пакета, например
+        npx serve .       или       python3 -m http.server
+      и открыть /examples/vanilla/. Через file:// не заработает: модулям нужен http.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+          "three/": "https://cdn.jsdelivr.net/npm/three@0.187.0/",
+          "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.18/build/index.module.js",
+          "gsap": "https://cdn.jsdelivr.net/npm/gsap@3.15.1/index.js",
+          "gsap/ScrollTrigger": "https://cdn.jsdelivr.net/npm/gsap@3.15.1/ScrollTrigger.js"
+        }
+      }
+    </script>
+    <style>
+      html, body { margin: 0; background: #fff; color: #000; font: 16px/1.5 system-ui, sans-serif; }
+      .placeholder { height: 100vh; display: grid; place-items: center; }
+      /* Секция: длина прокрутки, за которую проходят все 5 объектов */
+      #morph-section { height: 900vh; position: relative; }
+      /* Сцена «прилипает» к экрану, пока прокручивается секция */
+      #morph-stage { position: sticky; top: 0; height: 100vh; }
+      #morph-status { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.5; }
+    </style>
+  </head>
+  <body>
+    <div class="placeholder">Контент сайта до секции ↓</div>
+
+    <section id="morph-section">
+      <div id="morph-stage">
+        <!-- статус кладём внутрь stage: при difference-наложении он тоже будет чёрным на белом -->
+        <span id="morph-status">загрузка…</span>
+      </div>
+    </section>
+
+    <div class="placeholder">Контент сайта после секции</div>
+
+    <script type="module">
+      // путь к компоненту относительно этой страницы (в проекте: туда, куда скопирована папка particle-morph/)
+      import { ParticleMorphScene, SHOWCASE_MODELS } from '../../particle-morph/index.js';
+      import { ScrollController } from '../../particle-morph/ScrollController.js';
+
+      const section = document.getElementById('morph-section');
+      const stage = document.getElementById('morph-stage');
+      const status = document.getElementById('morph-status');
+      let scene, scroll, visible = false;
+
+      async function init() {
+        scene = new ParticleMorphScene(stage, {
+          models: SHOWCASE_MODELS('../../'), // модели лежат в ../../models/ (в проекте обычно '/')
+          cssBlendTarget: 'container', // stage — sticky-блок, наложение вешаем на него
+        });
+        try {
+          await scene.load();
+        } catch (e) {
+          status.textContent = 'не удалось загрузить 3D';
+          console.error(e);
+          return;
+        }
+        status.remove();
+        scroll = new ScrollController({
+          trigger: section, start: 'top top', end: 'bottom bottom', scrub: 0.8,
+          onUpdate: (p) => scene.setMorphProgress(p),
+        });
+        if (!visible) scene.stop();
+        window.__pms = scene; // для отладки и автотеста, на сайте можно убрать
+      }
+
+      // 1) грузим заранее: когда до секции остаётся ~1 экран
+      const preload = new IntersectionObserver(([entry]) => {
+        if (entry.isIntersecting) { preload.disconnect(); init(); }
+      }, { rootMargin: '100% 0px' });
+      preload.observe(section);
+      // 2) анимация работает только пока секция реально на экране
+      new IntersectionObserver(([entry]) => {
+        visible = entry.isIntersecting;
+        if (scene?.ready) visible ? scene.start() : scene.stop();
+      }).observe(section);
+    </script>
+  </body>
+</html>

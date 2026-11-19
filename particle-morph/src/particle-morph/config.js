@@ -9,11 +9,11 @@
 
 export const DEFAULT_CONFIG = {
   // ── Particles ───────────────────────────────────────────────────────────
-  particleCount: 40000, // same count for both models (changing it rebuilds the system)
-  particleSize: 1.6, // point diameter in CSS px at the reference camera distance
+  particleCount: 40000, // same count for every model (changing it rebuilds the system)
+  particleSize: 1.25, // point diameter in CSS px at the reference camera distance
   sizeVariation: 0.7, // 0 = uniform size, 1 = strong per-particle size variation
   opacity: 0.85, // overall ink density of a single particle
-  shading: 0.55, // 0 = flat, 1 = strong normal-based tonal shading
+  shading: 0.76, // 0 = flat, 1 = strong normal-based tonal shading
   backfaceFade: 0.6, // how much particles on surfaces facing away are dimmed
 
   // ── Sampling ────────────────────────────────────────────────────────────
@@ -26,23 +26,23 @@ export const DEFAULT_CONFIG = {
   morphProgress: 0, // 0 = first model … 1 = last model (model k sits at k / (N-1))
   morphHold: 0.1, // fraction of each transition, at both ends, where the model stays fully formed
   morphSmoothing: 6, // how fast the internal progress follows the requested progress (1/s)
-  morphSpread: 0.45, // stagger: 0 = every particle moves together, ~0.6 = strong travelling wave
-  morphScatter: 0.32, // how far particles bulge outward mid-flight (world units)
-  morphTwist: 0.7, // swirl around the vertical axis mid-flight (radians)
+  morphSpread: 0.5, // stagger: 0 = every particle moves together, ~0.6 = strong travelling wave
+  morphScatter: 1.14, // how far particles bulge outward mid-flight (world units)
+  morphTwist: 2.24, // swirl around the vertical axis mid-flight (radians)
   morphNoise: 1.0, // extra flow-noise while particles are in flight
 
   // ── Physics ─────────────────────────────────────────────────────────────
   recoverySpeed: 0.8, // spring stiffness and how fast disturbed particles "cool down"
   springDamping: 0.55, // damping ratio of the spring (<1 gives overshoot and settling)
-  noiseIntensity: 0.2, // ambient organic drift
+  noiseIntensity: 0.39, // ambient organic drift
   noiseScale: 1.6, // spatial frequency of the flow noise
 
   // ── Cursor interaction ──────────────────────────────────────────────────
-  interactionRadius: 0.22, // fraction of the current model's visible height
-  repulsionStrength: 1.0, // radial push away from the cursor
+  interactionRadius: 0.3, // fraction of the current model's visible height
+  repulsionStrength: 2.15, // radial push away from the cursor
   directionalStrength: 0.8, // push along the cursor's movement direction
   interactionEnabled: true,
-  lookAtIntensity: 0.15, // max formation rotation (radians) at the viewport edge
+  lookAtIntensity: 0.37, // max formation rotation (radians) at the viewport edge
   lookAtStiffness: 10, // look-at spring stiffness (higher = snappier)
   lookAtDamping: 0.75, // look-at damping ratio (lower = more inertia / sway)
 

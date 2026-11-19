@@ -20,12 +20,29 @@ export class ModelLoader {
    * @returns {Promise<{geometry: BufferGeometry, size: Vector3, triangleCount: number, meshCount: number}>}
    */
   async load(spec, onProgress) {
-    const gltf = await this.loader.loadAsync(spec.url, onProgress);
+    const gltf = await this._loadGLTF(spec, onProgress);
     const result = extractGeometry(gltf.scene, spec);
     disposeObject(gltf.scene);
     return result;
   }
 }
+
+ModelLoader.prototype._loadGLTF = async function (spec, onProgress) {
+  // 1) raw bytes supplied by the host (ArrayBuffer of a .glb)
+  if (spec.data) return this.loader.parseAsync(spec.data, '');
+  // 2) base64-encoded GLB served as text (for hosts that refuse binary files or
+  //    whose CSP blocks data: URIs). Decoded here, so no extra requests are made.
+  if (/\.b64(\.txt)?$/i.test(spec.url)) {
+    const res = await fetch(spec.url);
+    if (!res.ok) throw new Error(`ModelLoader: ${res.status} for ${spec.url}`);
+    const bin = atob((await res.text()).replace(/\s+/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return this.loader.parseAsync(bytes.buffer, '');
+  }
+  // 3) regular .glb / .gltf URL
+  return this.loader.loadAsync(spec.url, onProgress);
+};
 
 export function extractGeometry(root, { fitSize = 2, fitAxis = 'max', orient = [] } = {}) {
   root.updateMatrixWorld(true);

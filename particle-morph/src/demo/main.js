@@ -6,6 +6,13 @@ import { ScrollController } from '../particle-morph/ScrollController.js';
 const params = new URLSearchParams(location.search);
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
+const fail = (e) => {
+  status.textContent = `error: ${e?.message || e}`;
+  status.style.opacity = 1;
+  console.error(e);
+};
+window.addEventListener('error', (e) => fail(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => fail(e.reason));
 
 const scene = new ParticleMorphScene(stage, {
   models: KNIGHT_KATANA_MODELS(import.meta.env.BASE_URL, import.meta.env.VITE_MODEL_EXT || 'glb'),
@@ -15,7 +22,12 @@ const scene = new ParticleMorphScene(stage, {
 });
 window.__pms = scene; // handy for console / automated tests
 
-await scene.load();
+try {
+  await scene.load(undefined, { onProgress: (p) => (status.textContent = `loading models… ${Math.round(p * 100)}%`) });
+} catch (e) {
+  fail(e);
+  throw e;
+}
 
 const scroll = new ScrollController({
   trigger: '#scroll-track',

@@ -1,0 +1,143 @@
+:root {
+  --bg: #0a0a0a;
+  --muted: #7d7d7d;
+  --fg: #ffffff;
+  --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --sans: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.stage {
+  position: fixed;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.stage.is-dragging,
+.stage.is-dragging .skill-label {
+  cursor: grabbing;
+}
+
+.stage-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Labels ─────────────────────────────────────────── */
+
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.skill-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  /* Padding doubles as the gap from the anchor and a generous hit area. */
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: 400 13px/1.3 var(--mono);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  will-change: transform;
+  transition: color 0.25s ease;
+}
+.skill-label.is-hover,
+.skill-label.is-active {
+  color: var(--fg);
+}
+.skill-label:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: -4px;
+}
+
+/* ── Info panel ─────────────────────────────────────── */
+
+.panel {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px 16px 20px;
+  background: #fff;
+  color: #0a0a0a;
+  cursor: auto;
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: opacity 0.35s ease, transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.panel.is-visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.panel-kicker {
+  margin-bottom: 12px;
+  color: #777;
+  font: 400 12px/1 var(--mono);
+  letter-spacing: 0.01em;
+}
+.panel-title {
+  margin: 0 0 32px;
+  font: 600 24px/1.02 var(--sans);
+  letter-spacing: -0.035em;
+}
+.panel-body {
+  margin: 0;
+  color: #444;
+  font: 400 13px/1.45 var(--sans);
+}
+.panel-inner.is-swapping {
+  animation: panel-swap 0.4s ease;
+}
+@keyframes panel-swap {
+  from { opacity: 0.15; }
+  to { opacity: 1; }
+}
+
+/* ── Small screens ──────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .skill-label {
+    padding: 8px;
+    font-size: 10px;
+    white-space: normal;
+    max-width: 10.5em;
+  }
+  .panel {
+    right: 16px;
+    bottom: 16px;
+  }
+  .panel-title {
+    font-size: 20px;
+    margin-bottom: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .skill-label {
+    transition: none;
+  }
+}

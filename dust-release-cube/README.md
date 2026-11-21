@@ -1,6 +1,6 @@
 # Dust Release cube — standalone prototype
 
-An interactive, real-time 3D object recreating the shape of Onoki's Dust Release prism: translucent rose-tinted planes, thin white contours and a small glowing white core. The core leans toward six skill directions.
+An interactive, real-time 3D object recreating the shape of Onoki's Dust Release prism: neutral white translucent planes that bulge very slightly outward, thin white contours, faint internal direction lines and a small glowing white core. The core leans toward six skill directions.
 
 This is an isolated prototype. It has no dependency on the main site's sections or state.
 
@@ -18,8 +18,9 @@ Then open http://localhost:8000. Three.js r169 loads from jsDelivr through the i
 
 | Input | Result |
 |---|---|
+| Move the cursor | The object tilts slightly toward the cursor and eases back to rest when the cursor leaves. |
 | Drag anywhere | Free rotation with inertia. Presses under 5 px count as clicks, so a drag never selects a skill. |
-| Hover a label | The core springs toward that direction. Moving away returns it to the active skill, or to the centre. |
+| Hover a label | The core springs toward that label's direction on screen, whatever the current rotation. Moving away returns it to the active skill, or to the centre. |
 | Click a label | Makes the skill active: the label turns white, the core rests there, and the info card appears. |
 | Tab / Enter | Keyboard hover and select. |
 | Esc | Clears the selection. |
@@ -30,21 +31,24 @@ Then open http://localhost:8000. Three.js r169 loads from jsDelivr through the i
 src/
   config.js              all tunables: geometry, materials, spring, rotation, skills
   DustReleaseScene.js    renderer, frame hierarchy, state, loop; mount()/dispose()
-  DustPrism.js           custom hexahedron from 8 traced corners, glass shader, contours
+  DustPrism.js           traced hexahedron with slightly convex faces, glass shader, contours, inner lines
   EnergyCore.js          sphere + billboard halo, spring physics in object space
   RotationController.js  drag-to-rotate, fling inertia, click suppression
-  SkillLabels.js         2D overlay: HTML labels + SVG hairlines, fixed section layout
+  ParallaxController.js  restrained cursor tilt + drift, frozen while dragging
+  SkillLabels.js         HTML labels in the fixed section layout
   InfoPanel.js           bottom-right white card
 ```
 
 ### Key ideas
 
 - **Traced geometry.** `CONFIG.shell.vertices` holds the prism's eight corners. They were solved with a least-squares fit, so that through this scene's camera at rest they project onto the 8 corners and 12 edges of the anime frame. The leftover error per corner was folded back into the vertices, so the faces are slightly skewed and non-planar like the drawing. The vertices are centred on the volume's centroid, so the idle core sits at the exact geometric centre.
-- **Skill frame.** One group, `frame`, holds the prism and the core. User rotation and idle sway rotate `frame`. The six skill directions live in the same frame.
-- **Labels are 2D.** Labels and hairlines are an HTML/SVG overlay laid out from the resting orientation, so they keep the section's fixed layout. Hairlines start outside the prism's largest possible screen radius, so no line ever crosses or sticks out of the object. Set `labels.followRotation: true` to make them track the rotation instead.
-- **Core movement in object space.** Each skill's `direction` is a vector in the frame. The core's target is `direction × travel`. A damped spring (`stiffness`, `damping`) drives it, and it is hard-clamped to `maxOffset`. At startup that clamp is reduced to the prism's real inner clearance (the distance from the centre to the nearest plane) minus the core radius and a margin, so the core can never touch a plane, whatever the orientation.
-- **Inertia.** When the frame rotates, part of that rotation is undone on the core (`inertia`). An off-centre core therefore lags slightly behind a fast drag, then settles.
-- **Glass.** Back faces render first, then the opaque core, then the front faces, contours and the additive halo. The glass shader combines Fresnel opacity, light from the core, soft studio reflections and a faint border. There is no post-processing and no transmission pass.
+- **Convex faces.** Each face is a bilinear patch through its four corners, pushed outward by `bulge · sin(πu) · sin(πv)` with smooth normals. The offset is zero along every edge, so the contours stay straight and the silhouette stays angular. The curvature shows only in the shading and reflections.
+- **One owner per transform.** `rig` holds position only (parallax drift). Inside it, `tilt` holds rotation only (parallax tilt), and inside that, `frame` holds rotation only (drag × idle sway). The prism sits in `frame`. The core sits directly in `rig`, beside the rotating groups, so no rotation ever reaches it. It still drifts with the object, so it stays inside.
+- **Screen-relative core.** The core's target is the skill's resting direction projected onto the screen plane (its X/Y), times `travel`. Because the core is never under a rotated parent, this stays correct after any drag. The test pass checks all six skills at 0°, 90°, 180° and 360° and at oblique angles.
+- **Parallax vs drag.** Parallax lives on its own group and only eases toward the cursor. While the mouse button is down its target freezes, so drag rotation alone drives the motion. When the cursor leaves the stage, it eases back to rest.
+- **Inner lines.** There is one hairline per skill, from the centre to the inner surface: the face centre for top, bottom, left and right, and the ray's exit point for the diagonals. End points are found by raycasting the curved shell from inside and are pulled in slightly, so no line reaches or passes a face. Labels have no connecting lines.
+- **Containment.** A damped spring (`stiffness`, `damping`) moves the core, and it is hard-clamped to `maxOffset`. A damped spring (`stiffness`, `damping`) drives it, and it is hard-clamped to `maxOffset`. At startup that clamp is reduced to the prism's real inner clearance (the distance from the centre to the nearest plane) minus the core radius and a margin, so the core can never touch a plane, whatever the orientation.
+- **Glass.** Back faces render first, then the opaque core, then the front faces, contours and the additive halo. The glass shader is strictly neutral: every colour term is white, so planes differ only by opacity, Fresnel, white reflections, light from the core and a faint border. There is no post-processing and no transmission pass.
 - **Contours.** `LineSegments2` keeps lines at a constant 1.25 CSS px, with a faint wider pass under them for the drawing's soft bleed. Rear edges are dimmed slightly, based on which faces point toward the camera.
 
 ## Integrating later

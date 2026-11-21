@@ -3,19 +3,24 @@ import { DustPrism } from './DustPrism.js';
 import { EnergyCore } from './EnergyCore.js';
 import { SkillLabels } from './SkillLabels.js';
 import { RotationController } from './RotationController.js';
+import { ParallaxController } from './ParallaxController.js';
 import { InfoPanel } from './InfoPanel.js';
 
 /**
  * Self-contained scene. Mount into any element:
  *   const s = new DustReleaseScene(el, CONFIG); s.start(); … s.dispose();
  *
- * Hierarchy:
+ * Hierarchy (each transform has exactly one owner):
  *   scene
- *   └─ frame (skill frame — user rotation × idle sway)
- *      ├─ prism (traced Dust Release shell)
- *      └─ core  (spring-driven, local coords; rests at the centroid)
+ *   └─ rig                position only: parallax drift
+ *      ├─ tilt            rotation only: parallax tilt (cursor)
+ *      │  └─ frame        rotation only: drag × idle sway
+ *      │     └─ prism     traced shell + inner hairlines
+ *      └─ core            NOT rotated: screen-aligned spring offset
  *
- * Labels and their hairlines are a separate 2D overlay (SkillLabels).
+ * Because the core is a sibling of the rotating groups rather than their child,
+ * its skill-directed movement is always screen-relative, while the shared rig
+ * keeps it inside the prism when the whole object drifts.
  */
 export class DustReleaseScene {
   constructor(container, config, { onSelect } = {}) {
@@ -36,27 +41,43 @@ export class DustReleaseScene {
     this.camera = new THREE.PerspectiveCamera(config.camera.fov, 1, 0.1, 100);
 
     // Object
+    this.rig = new THREE.Group();
+    this.tilt = new THREE.Group();
     this.frame = new THREE.Group();
-    this.scene.add(this.frame);
+    this.scene.add(this.rig);
+    this.rig.add(this.tilt);
+    this.tilt.add(this.frame);
+
     this.core = new EnergyCore(config.core);
+    this.rig.add(this.core);
     this.shared = {
       uCore: { value: new THREE.Vector3() },
       uCoreIntensity: this.core.uIntensity,
     };
     this.prism = new DustPrism(config.shell, this.shared);
-    this.frame.add(this.prism, this.core);
-    // Containment: core radius + travel always stays clear of every plane.
+    this.frame.add(this.prism);
+    if (config.innerLines.show) {
+      const targets = config.skills.map((s) => s.innerLine ?? new THREE.Vector3(...s.direction));
+      this.prism.addInnerLines(targets, config.innerLines);
+    }
+    // Containment: the core is a sphere around the shared centre, so if
+    // radius + travel stays below the nearest plane it is inside at any rotation.
     this.core.maxOffset = Math.min(config.core.maxOffset, this.prism.innerClearance() - config.core.radius - 0.08);
     this.restFrame = new THREE.Object3D(); // resting orientation, for the fixed label layout
 
-    this.directions = new Map(config.skills.map((s) => [s.id, new THREE.Vector3(...s.direction).normalize()]));
+    // Screen-relative core directions: each skill's resting direction
+    // projected onto the screen plane (the camera looks straight down −Z).
+    this.screenDirections = new Map(
+      config.skills.map((s) => [s.id, new THREE.Vector3(s.direction[0], s.direction[1], 0).normalize()])
+    );
 
     // Interaction
     this.rotation = new RotationController(container, config.rotation);
     this.rotation.onDragChange = (dragging) => {
       if (dragging) this.setHovered(null);
     };
-    this.labels = new SkillLabels(container, config.skills, config.labels, {
+    this.parallax = new ParallaxController(container, config.parallax, { isDragging: () => this.rotation.isDown });
+    this.labels = new SkillLabels(container, config.skills, {
       onHover: (id, leaving) => {
         if (id === null && leaving && this.state.hovered !== leaving) return;
         this.setHovered(id);
@@ -76,15 +97,11 @@ export class DustReleaseScene {
     this.resize();
     document.fonts?.ready.then(() => this.resize()); // re-measure labels once web fonts land
 
-    this._prevQ = new THREE.Quaternion();
-    this._delta = new THREE.Quaternion();
     this._sway = new THREE.Quaternion();
     this._euler = new THREE.Euler();
     this._clock = new THREE.Clock();
     this._time = 0;
     this._tick = this._tick.bind(this);
-    this.updateFrameRotation(0);
-    this._prevQ.copy(this.frame.quaternion);
   }
 
   // ── State ──────────────────────────────────────────────
@@ -108,7 +125,7 @@ export class DustReleaseScene {
     const { hovered, active } = this.state;
     // Hover leads temporarily; otherwise the core rests at the active skill (or centre).
     const targetId = hovered ?? active;
-    this.core.setTargetDirection(targetId ? this.directions.get(targetId) : null);
+    this.core.setTargetDirection(targetId ? this.screenDirections.get(targetId) : null);
     this.labels.setState(this.state);
   }
 
@@ -132,26 +149,10 @@ export class DustReleaseScene {
 
     this.prism.setResolution(w, h);
     this.labels.measure();
-
-    // Hairlines start just outside the object's largest possible screen radius.
-    const R = this.prism.outerRadius();
-    const D = this.camera.position.z;
-    this.lineStart = R * ppu * (D / (D - R)) + this.config.labels.lineGap;
-    if (!this.labels.follows) this.layoutLabels(this.restFrame);
-  }
-
-  layoutLabels(frame) {
-    this.labels.layout(this.camera, frame, this.width, this.height, this.lineStart);
+    this.labels.layout(this.camera, this.restFrame, w, h);
   }
 
   // ── Loop ───────────────────────────────────────────────
-
-  updateFrameRotation(t) {
-    const a = this.reducedMotion ? 0 : this.config.rotation.idleSway;
-    this._euler.set(Math.sin(t * 0.21) * a * 0.55, Math.sin(t * 0.13 + 1.3) * a, Math.sin(t * 0.17) * a * 0.15);
-    this._sway.setFromEuler(this._euler);
-    this.frame.quaternion.multiplyQuaternions(this._sway, this.rotation.quaternion);
-  }
 
   _tick() {
     this._raf = requestAnimationFrame(this._tick);
@@ -159,23 +160,29 @@ export class DustReleaseScene {
     this._time += dt;
     const t = this._time;
 
-    // 1. Rotation (drag inertia + idle sway)
+    // 1. Drag rotation (with release inertia) + idle sway → frame
     this.rotation.update(dt);
-    this.updateFrameRotation(t);
+    const a = this.reducedMotion ? 0 : this.config.rotation.idleSway;
+    this._euler.set(Math.sin(t * 0.21) * a * 0.55, Math.sin(t * 0.13 + 1.3) * a, Math.sin(t * 0.17) * a * 0.15);
+    this._sway.setFromEuler(this._euler);
+    this.frame.quaternion.multiplyQuaternions(this._sway, this.rotation.quaternion);
 
-    // 2. Core physics in object space: inertial lag from the rotation, then spring.
-    this._delta.copy(this.frame.quaternion).invert().multiply(this._prevQ);
-    this._prevQ.copy(this.frame.quaternion);
-    this.core.applyFrameRotation(this._delta, this.reducedMotion ? 0 : undefined);
+    // 2. Cursor parallax → tilt (rotation) and rig (position), separate owners
+    if (!this.reducedMotion) {
+      this.parallax.update(dt);
+      this.tilt.quaternion.copy(this.parallax.quaternion);
+      this.rig.position.copy(this.parallax.offset);
+    }
+
+    // 3. Core: screen-aligned spring, independent of every rotation above
     this.core.step(dt);
     this.core.uIntensity.value = this.config.core.intensity * (1 + this.config.core.breathe * Math.sin(t * 1.1));
 
-    // 3. Per-frame visual sync
-    this.frame.updateMatrixWorld(true);
+    // 4. Per-frame visual sync
+    this.rig.updateMatrixWorld(true);
     this.core.getWorldPosition(this.shared.uCore.value);
     this.core.faceCamera(this.camera);
     this.prism.update(this.camera);
-    if (this.labels.follows) this.layoutLabels(this.frame);
 
     this.renderer.render(this.scene, this.camera);
   }
@@ -196,6 +203,7 @@ export class DustReleaseScene {
     this._resizeObserver.disconnect();
     window.removeEventListener('keydown', this._onKey);
     this.rotation.dispose();
+    this.parallax.dispose();
     this.labels.dispose();
     this.panel.dispose();
     this.prism.dispose();

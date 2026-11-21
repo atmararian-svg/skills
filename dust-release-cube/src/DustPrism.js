@@ -5,18 +5,22 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 /*
  * The Dust Release prism: a custom hexahedron built from eight traced corners
- * (see CONFIG.shell.vertices). Translucent rose planes and thin white contours.
+ * (see CONFIG.shell.vertices). Neutral white translucent planes that bulge
+ * very slightly outward (like the faces of a die), thin white contours, and
+ * optional hairlines from the centre to the inner surface.
  *
  * Corner i: bit 0 → right, bit 1 → top, bit 2 → front.
  */
-const FACES = [
-  [0, 2, 6, 4], // left
-  [1, 3, 7, 5], // right
-  [0, 1, 5, 4], // bottom
-  [2, 3, 7, 6], // top
-  [0, 1, 3, 2], // rear
-  [4, 5, 7, 6], // front
-];
+export const FACES = {
+  left: [0, 2, 6, 4],
+  right: [1, 3, 7, 5],
+  bottom: [0, 1, 5, 4],
+  top: [2, 3, 7, 6],
+  rear: [0, 1, 3, 2],
+  front: [4, 5, 7, 6],
+};
+const FACE_LIST = Object.values(FACES);
+const FACE_INDEX = Object.fromEntries(Object.keys(FACES).map((k, i) => [k, i]));
 
 const EDGES = [];
 for (let i = 0; i < 8; i++) {
@@ -26,46 +30,78 @@ for (let i = 0; i < 8; i++) {
   }
 }
 const EDGE_FACES = EDGES.map(([a, b]) =>
-  FACES.map((f, k) => (f.includes(a) && f.includes(b) ? k : -1)).filter((k) => k >= 0)
+  FACE_LIST.map((f, k) => (f.includes(a) && f.includes(b) ? k : -1)).filter((k) => k >= 0)
 );
 
-/** Flat-shaded planes; each quad gets a 0–1 UV so the shader knows where its borders are. */
-function buildFaces(corners) {
+/**
+ * Each face is a bilinear patch through its 4 corners, pushed outward along the
+ * face normal by bulge · sin(πu) · sin(πv). The offset is zero on the border,
+ * so every edge stays a straight line and the silhouette stays angular; the
+ * curvature shows up in the shading and reflections.
+ */
+function buildFaces(corners, bulge, segments) {
   const pos = [];
   const nrm = [];
   const uv = [];
+  const index = [];
   const centroids = [];
   const normals = [];
-  const quadUV = [[0, 0], [1, 0], [1, 1], [0, 1]];
   const ab = new THREE.Vector3();
   const ac = new THREE.Vector3();
+  const du = new THREE.Vector3();
+  const dv = new THREE.Vector3();
+  const p = new THREE.Vector3();
 
-  for (const face of FACES) {
+  for (const face of FACE_LIST) {
     let q = face.map((i) => corners[i]);
     const c = q.reduce((s, v) => s.add(v), new THREE.Vector3()).multiplyScalar(0.25);
     if (ab.subVectors(q[1], q[0]).cross(ac.subVectors(q[2], q[0])).dot(c) < 0) q = [q[0], q[3], q[2], q[1]];
+    const n = ab.subVectors(q[2], q[0]).cross(ac.subVectors(q[3], q[1])).normalize().clone();
+    centroids.push(c);
+    normals.push(n);
 
-    // Split along the shorter diagonal so the non-planar quads fold cleanly.
-    const tris = q[0].distanceTo(q[2]) <= q[1].distanceTo(q[3]) ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 3], [1, 2, 3]];
-    const faceN = new THREE.Vector3();
-    for (const tri of tris) {
-      const [a, b, e] = tri;
-      const tn = ab.subVectors(q[b], q[a]).cross(ac.subVectors(q[e], q[a])).normalize().clone();
-      faceN.add(tn);
-      for (const k of tri) {
-        pos.push(q[k].x, q[k].y, q[k].z);
-        nrm.push(tn.x, tn.y, tn.z);
-        uv.push(...quadUV[k]);
+    const S = (u, v, out) => {
+      out.set(0, 0, 0)
+        .addScaledVector(q[0], (1 - u) * (1 - v))
+        .addScaledVector(q[1], u * (1 - v))
+        .addScaledVector(q[2], u * v)
+        .addScaledVector(q[3], (1 - u) * v);
+      return out.addScaledVector(n, bulge * Math.sin(Math.PI * u) * Math.sin(Math.PI * v));
+    };
+
+    const base = pos.length / 3;
+    const e = 1e-3;
+    const tmpA = new THREE.Vector3();
+    const tmpB = new THREE.Vector3();
+    for (let j = 0; j <= segments; j++) {
+      for (let i = 0; i <= segments; i++) {
+        const u = i / segments;
+        const v = j / segments;
+        S(u, v, p);
+        pos.push(p.x, p.y, p.z);
+        // Analytic-ish normal from central differences of the patch.
+        du.subVectors(S(Math.min(u + e, 1), v, tmpA), S(Math.max(u - e, 0), v, tmpB));
+        dv.subVectors(S(u, Math.min(v + e, 1), tmpA), S(u, Math.max(v - e, 0), tmpB));
+        const sn = du.cross(dv).normalize();
+        if (sn.dot(n) < 0) sn.negate();
+        nrm.push(sn.x, sn.y, sn.z);
+        uv.push(u, v);
       }
     }
-    centroids.push(c);
-    normals.push(faceN.normalize());
+    const row = segments + 1;
+    for (let j = 0; j < segments; j++) {
+      for (let i = 0; i < segments; i++) {
+        const a = base + j * row + i;
+        index.push(a, a + 1, a + row + 1, a, a + row + 1, a + row);
+      }
+    }
   }
 
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(index);
   return { geometry: g, centroids, normals };
 }
 
@@ -82,13 +118,15 @@ const glassVertex = /* glsl */ `
   }
 `;
 
+// Strictly neutral: every colour term below is white, planes are told apart
+// by opacity, Fresnel and reflections only.
 const glassFragment = /* glsl */ `
-  uniform vec3 uTint;
   uniform vec3 uCore;
   uniform float uCoreIntensity;
   uniform float uCoreLight;
   uniform float uOpacity;
   uniform float uFresnel;
+  uniform float uReflection;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec2 vUv;
@@ -100,25 +138,23 @@ const glassFragment = /* glsl */ `
     float ndv = clamp(abs(dot(N, V)), 0.0, 1.0);
     float fres = pow(1.0 - ndv, 3.0);
 
-    // Light spill from the core: bright close by, quickly fading.
+    // Light transmitted from the core onto nearby planes.
     float d = distance(vWorld, uCore);
     float glow = uCoreIntensity * uCoreLight / (1.0 + d * d * 9.0);
 
-    // Soft studio reflection: a broad overhead band and a narrow key strip.
+    // White studio reflections; the curved faces bend these into soft gradients.
     vec3 R = reflect(-V, N);
-    float sky = smoothstep(0.5, 1.0, R.y) * 0.45;
-    float strip = smoothstep(0.97, 0.996, dot(R, normalize(vec3(-0.55, 0.45, 0.7))));
-    float refl = sky + strip * 0.7;
+    float top = smoothstep(0.35, 1.0, R.y);
+    float key = smoothstep(0.93, 0.995, dot(R, normalize(vec3(-0.6, 0.5, 0.62))));
+    float rim = smoothstep(0.9, 0.99, dot(R, normalize(vec3(0.75, -0.2, 0.62))));
+    float refl = (top * 0.5 + key * 0.9 + rim * 0.35) * uReflection;
 
-    // Plane borders catch a little light, like the edge of a glass slab.
     vec2 e = min(vUv, 1.0 - vUv);
-    float border = 1.0 - smoothstep(0.0, 0.035, min(e.x, e.y));
+    float border = 1.0 - smoothstep(0.0, 0.03, min(e.x, e.y));
 
-    vec3 col = uTint * (0.7 + 0.5 * fres)
-             + vec3(1.0, 0.93, 0.94) * glow
-             + vec3(1.0) * (refl * 0.2 + border * 0.1);
-    float a = uOpacity + fres * uFresnel + glow * 0.12 + refl * 0.05 + border * 0.04;
-    gl_FragColor = vec4(col, clamp(a, 0.0, 0.8));
+    float light = 0.55 + 0.45 * fres + glow + refl * 0.6 + border * 0.12;
+    float a = uOpacity + fres * uFresnel + glow * 0.12 + refl * 0.1 + border * 0.035;
+    gl_FragColor = vec4(vec3(light), clamp(a, 0.0, 0.75));
   }
 `;
 
@@ -130,21 +166,19 @@ function makeGlassMaterial(side, opacity, cfg, shared) {
     transparent: true,
     depthWrite: false,
     uniforms: {
-      uTint: { value: new THREE.Color(cfg.tint) },
       uCore: shared.uCore,
       uCoreIntensity: shared.uCoreIntensity,
       uCoreLight: { value: cfg.coreLight },
       uOpacity: { value: opacity },
       uFresnel: { value: cfg.fresnel },
+      uReflection: { value: cfg.reflection },
     },
   });
 }
 
-function makeEdges(corners, { width, opacity, color, vertexColors }) {
-  const pts = [];
-  for (const [a, b] of EDGES) pts.push(...corners[a].toArray(), ...corners[b].toArray());
-  const geometry = new LineSegmentsGeometry().setPositions(pts);
-  if (vertexColors) geometry.setColors(new Float32Array(EDGES.length * 6).fill(1));
+function makeLines(points, { width, opacity, color = '#ffffff', vertexColors = false }) {
+  const geometry = new LineSegmentsGeometry().setPositions(points);
+  if (vertexColors) geometry.setColors(new Float32Array((points.length / 6) * 6).fill(1));
   const material = new LineMaterial({ color, linewidth: width, vertexColors, transparent: true, opacity, depthWrite: false });
   return new LineSegments2(geometry, material);
 }
@@ -160,7 +194,7 @@ export class DustPrism extends THREE.Group {
 
     const corners = cfg.vertices.map((v) => new THREE.Vector3(...v).multiplyScalar(cfg.scale));
     this.corners = corners;
-    const { geometry, centroids, normals } = buildFaces(corners);
+    const { geometry, centroids, normals } = buildFaces(corners, cfg.bulge, cfg.segments);
     this.faceCentroids = centroids;
     this.faceNormals = normals;
 
@@ -169,14 +203,11 @@ export class DustPrism extends THREE.Group {
     this.frontFaces = new THREE.Mesh(geometry, makeGlassMaterial(THREE.FrontSide, cfg.faceOpacity, cfg, shared));
     this.frontFaces.renderOrder = 3;
 
-    this.edgeGlow = makeEdges(corners, {
-      width: cfg.edgeGlow.width,
-      opacity: cfg.edgeGlow.opacity,
-      color: cfg.edgeColor,
-      vertexColors: false,
-    });
+    const edgePts = [];
+    for (const [a, b] of EDGES) edgePts.push(...corners[a].toArray(), ...corners[b].toArray());
+    this.edgeGlow = makeLines(edgePts, { width: cfg.edgeGlow.width, opacity: cfg.edgeGlow.opacity });
     this.edgeGlow.renderOrder = 4;
-    this.edges = makeEdges(corners, { width: cfg.edgeWidth, opacity: cfg.edgeOpacity, color: cfg.edgeColor, vertexColors: true });
+    this.edges = makeLines(edgePts, { width: cfg.edgeWidth, opacity: cfg.edgeOpacity, vertexColors: true });
     this.edges.renderOrder = 5;
 
     this.add(this.backFaces, this.frontFaces, this.edgeGlow, this.edges);
@@ -189,18 +220,43 @@ export class DustPrism extends THREE.Group {
     this._facing = new Float32Array(6);
   }
 
-  /** Distance from the centre to the nearest plane: how far the core may travel. */
+  /**
+   * Hairlines from the centre to the inner surface. Each target is either a
+   * face name (line ends at that face's centre) or a direction vector (line
+   * ends where that ray meets the shell). End points are found by raycasting
+   * the actual curved geometry from the inside, then pulled in by `inset`,
+   * so a line can never pass through or beyond a plane.
+   */
+  addInnerLines(targets, { width, opacity, inset }) {
+    const probe = new THREE.Mesh(this.frontFaces.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    probe.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const origin = new THREE.Vector3();
+    const pts = [];
+    this.innerLineEnds = [];
+    for (const t of targets) {
+      const dir = typeof t === 'string' ? this.faceCentroids[FACE_INDEX[t]].clone().normalize() : t.clone().normalize();
+      ray.set(origin, dir);
+      const hit = ray.intersectObject(probe, false)[0];
+      if (!hit) continue;
+      const end = dir.clone().multiplyScalar(hit.distance - inset);
+      pts.push(0, 0, 0, end.x, end.y, end.z);
+      this.innerLineEnds.push({ end, surface: hit.distance });
+    }
+    probe.material.dispose();
+    this.innerLines = makeLines(pts, { width, opacity });
+    this.innerLines.renderOrder = 2;
+    this.innerLines.material.depthTest = true; // hidden behind the opaque core
+    this.add(this.innerLines);
+  }
+
+  /** Distance from the centre to the nearest (flat) plane: how far the core may travel. */
   innerClearance() {
     return Math.min(...this.faceNormals.map((n, i) => Math.abs(n.dot(this.faceCentroids[i]))));
   }
 
-  /** Distance from the centre to the farthest corner. */
-  outerRadius() {
-    return Math.max(...this.corners.map((v) => v.length()));
-  }
-
   setResolution(w, h) {
-    for (const l of [this.edges, this.edgeGlow]) l.material.resolution.set(w, h);
+    for (const l of [this.edges, this.edgeGlow, this.innerLines]) l?.material.resolution.set(w, h);
   }
 
   /** Rear contours sit a touch dimmer than front ones, which keeps depth readable. */
@@ -226,7 +282,8 @@ export class DustPrism extends THREE.Group {
     this.backFaces.geometry.dispose();
     this.backFaces.material.dispose();
     this.frontFaces.material.dispose();
-    for (const l of [this.edges, this.edgeGlow]) {
+    for (const l of [this.edges, this.edgeGlow, this.innerLines]) {
+      if (!l) continue;
       l.geometry.dispose();
       l.material.dispose();
     }

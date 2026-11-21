@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 /*
  * The glowing core: an opaque white sphere plus a camera-facing additive halo.
- * Its position is simulated in the skill frame (object space) with a damped
- * spring, so it moves with weight and always stays inside the shell.
+ * Its position is a damped spring in its own screen-aligned space, so it
+ * moves with weight and always stays inside the shell.
  */
 
 const sphereVertex = /* glsl */ `
@@ -22,8 +22,8 @@ const sphereFragment = /* glsl */ `
   varying vec3 vV;
   void main() {
     float ndv = clamp(dot(normalize(vN), normalize(vV)), 0.0, 1.0);
-    // Hot white centre, a breath of rose at the limb so it still reads as a sphere.
-    vec3 col = mix(vec3(0.96, 0.9, 0.91), vec3(1.0), smoothstep(0.0, 0.55, ndv));
+    // Hot white centre, a hair darker at the limb so it still reads as a sphere.
+    vec3 col = vec3(mix(0.9, 1.0, smoothstep(0.0, 0.55, ndv)));
     gl_FragColor = vec4(col * uIntensity, 1.0);
   }
 `;
@@ -46,8 +46,7 @@ const haloFragment = /* glsl */ `
     // Tight corona + soft scatter + faint wide falloff.
     float g = 0.8 * exp(-x / 0.03) + 0.3 * exp(-x / 0.1) + 0.08 * exp(-x / 0.28);
     g *= 1.0 - smoothstep(uSize * 0.36, uSize * 0.5, r);
-    vec3 col = mix(vec3(1.0, 0.84, 0.87), vec3(1.0), clamp(g * 1.6, 0.0, 1.0));
-    gl_FragColor = vec4(col * g * uIntensity, 1.0);
+    gl_FragColor = vec4(vec3(g * uIntensity), 1.0);
   }
 `;
 
@@ -88,7 +87,7 @@ export class EnergyCore extends THREE.Group {
 
     this.add(this.sphere, this.halo);
 
-    // Spring state, in the parent's (skill frame) coordinates.
+    // Spring state, in the core rig's screen-aligned coordinates.
     this.maxOffset = cfg.maxOffset;
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
@@ -98,21 +97,14 @@ export class EnergyCore extends THREE.Group {
     this._v = new THREE.Vector3();
   }
 
-  /** Direction in the skill frame (or null for centre). */
+  /**
+   * Direction in the core's own space (screen-aligned: +X right, +Y up),
+   * or null for the centre. The core is not parented to the rotating prism,
+   * so this is never affected by drag rotation or parallax tilt.
+   */
   setTargetDirection(dir) {
     if (!dir) this.target.set(0, 0, 0);
     else this.target.copy(dir).normalize().multiplyScalar(Math.min(this.cfg.travel, this.maxOffset * 0.8));
-  }
-
-  /**
-   * The frame rotated by `delta` (= qNew⁻¹ · qOld) this tick. A free-floating
-   * mass wants to keep its world position, so part of that rotation is undone
-   * on the core — it lags, then the spring pulls it back.
-   */
-  applyFrameRotation(delta, amount = this.cfg.inertia) {
-    if (amount <= 0 || this.pos.lengthSq() < 1e-8) return;
-    this._q.identity().slerp(delta, amount);
-    this.pos.applyQuaternion(this._q);
   }
 
   step(dt) {

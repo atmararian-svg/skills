@@ -1,10 +1,11 @@
 /**
  * Dust Release cube — all tunable values live here.
  *
- * Coordinate system: the "skill frame" is the object's local space.
- * +X right, +Y up, +Z towards the viewer at rest. Everything the user rotates
- * (shell, core, skill directions) lives in this frame, so the core's
- * movement is always computed in object space, never in screen space.
+ * Coordinates: +X right, +Y up, +Z toward the viewer (at rest).
+ * Skill `direction`s are given in this resting space. The prism and its inner
+ * hairlines rotate with drag and parallax; the core does not: it moves toward
+ * each skill's on-screen direction (the direction's X/Y), whatever the
+ * prism's current orientation.
  */
 export const CONFIG = {
   background: '#0A0A0A',
@@ -38,11 +39,17 @@ export const CONFIG = {
     ],
     scale: 1.0,
 
-    tint: '#f6dde1',          // pale dusty rose
-    faceOpacity: 0.15,       // front planes at normal incidence
-    backFaceOpacity: 0.1,     // rear planes (overlaps build up like the drawing)
-    fresnel: 0.22,            // extra opacity at grazing angles
-    coreLight: 1.0,           // light spill from the core onto the planes
+    // Faces bulge outward by this much at their centre (world units, ~2.5% of
+    // an edge), falling to zero at every edge so contours stay straight.
+    bulge: 0.032,
+    segments: 18,             // grid resolution per face
+
+    // Neutral white glass: planes differ by opacity and light only, no tint.
+    faceOpacity: 0.07,        // front planes at normal incidence
+    backFaceOpacity: 0.045,   // rear planes
+    fresnel: 0.2,             // extra opacity at grazing angles
+    reflection: 1.0,          // white studio reflections (show the curvature)
+    coreLight: 0.9,           // light transmitted from the core onto the planes
 
     edgeColor: '#ffffff',
     edgeWidth: 1.25,          // CSS px, crisp contour
@@ -57,7 +64,6 @@ export const CONFIG = {
     maxOffset: 0.24,      // further clamped at runtime to fit inside the shell
     stiffness: 70,        // spring constant
     damping: 10.5,        // < 2*sqrt(stiffness) → slight, weighty overshoot
-    inertia: 0.35,        // 0–1, how much the core lags behind rotation
     haloSize: 1.5,        // billboard quad size (world units)
     intensity: 1.0,
     breathe: 0.02,        // idle intensity pulse amplitude
@@ -70,18 +76,26 @@ export const CONFIG = {
     idleSway: 0.05,       // radians, slow restrained idle motion
   },
 
-  labels: {
-    // false: labels and their hairlines keep the section's fixed 2D layout.
-    // true: they track the 3D anchors as the object rotates.
-    followRotation: false,
-    lineColor: '#3a3a3a',
-    lineActiveColor: '#e6e6e6',
-    lineGap: 18,          // px between the object's outer radius and a line's start
+  // Cursor parallax, layered on top of drag rotation (never mixed into it).
+  parallax: {
+    tilt: 0.09,           // max radians toward the cursor (~5°)
+    shift: 0.05,          // max world-unit drift toward the cursor
+    ease: 2.6,            // lower = lazier follow
+  },
+
+  // Hairlines from the centre to the inner surface, one per skill. They live
+  // inside the prism, rotate with it and stop just short of the planes.
+  innerLines: {
+    show: true,
+    width: 1,
+    opacity: 0.22,
+    inset: 0.012,
   },
 
   skills: [
     {
       id: 'product',
+      innerLine: 'top',      // hairline to this face's centre
       label: 'PRODUCT DEVELOPMENT',
       direction: [0, 1, 0],
       distance: 2.3,
@@ -90,6 +104,7 @@ export const CONFIG = {
     },
     {
       id: 'complex',
+      innerLine: 'bottom',      // hairline to this face's centre
       label: 'COMPLEX WEB APPLICATIONS',
       direction: [0, -1, 0],
       distance: 2.3,
@@ -98,6 +113,7 @@ export const CONFIG = {
     },
     {
       id: 'experimental',
+      innerLine: 'left',      // hairline to this face's centre
       label: 'EXPERIMENTAL TECHNOLOGIES',
       direction: [-1, 0, 0],
       distance: 2.3,
@@ -106,6 +122,7 @@ export const CONFIG = {
     },
     {
       id: 'fullstack',
+      innerLine: 'right',      // hairline to this face's centre
       label: 'FULL-STACK DEVELOPMENT',
       direction: [1, 0, 0],
       distance: 2.3,

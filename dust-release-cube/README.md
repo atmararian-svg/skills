@@ -1,6 +1,6 @@
 # Dust Release cube — standalone prototype
 
-An interactive, real-time 3D object recreating the shape of Onoki's Dust Release prism: neutral white translucent planes that bulge very slightly outward, thin white contours, faint internal direction lines and a small glowing white core. The core leans toward six skill directions.
+An interactive, real-time 3D object recreating the shape of Onoki's Dust Release prism: neutral white translucent planes that bulge slightly outward like a die, fine white contours and a small glowing white core. The core leans toward six skill directions.
 
 This is an isolated prototype. It has no dependency on the main site's sections or state.
 
@@ -31,7 +31,8 @@ Then open http://localhost:8000. Three.js r169 loads from jsDelivr through the i
 src/
   config.js              all tunables: geometry, materials, spring, rotation, skills
   DustReleaseScene.js    renderer, frame hierarchy, state, loop; mount()/dispose()
-  DustPrism.js           traced hexahedron with slightly convex faces, glass shader, contours, inner lines
+  DustPrism.js           traced hexahedron with slightly convex faces, glass shader, contours
+  SkillRays.js           hover-only gradient ray from the centre to the shell
   EnergyCore.js          sphere + billboard halo, spring physics in object space
   RotationController.js  drag-to-rotate, fling inertia, click suppression
   ParallaxController.js  restrained cursor tilt + drift, frozen while dragging
@@ -46,10 +47,10 @@ src/
 - **One owner per transform.** `rig` holds position only (parallax drift). Inside it, `tilt` holds rotation only (parallax tilt), and inside that, `frame` holds rotation only (drag × idle sway). The prism sits in `frame`. The core sits directly in `rig`, beside the rotating groups, so no rotation ever reaches it. It still drifts with the object, so it stays inside.
 - **Screen-relative core.** The core's target is the skill's resting direction projected onto the screen plane (its X/Y), times `travel`. Because the core is never under a rotated parent, this stays correct after any drag. The test pass checks all six skills at 0°, 90°, 180° and 360° and at oblique angles.
 - **Parallax vs drag.** Parallax lives on its own group and only eases toward the cursor. While the mouse button is down its target freezes, so drag rotation alone drives the motion. When the cursor leaves the stage, it eases back to rest.
-- **Inner lines.** There is one hairline per skill, from the centre to the inner surface: the face centre for top, bottom, left and right, and the ray's exit point for the diagonals. End points are found by raycasting the curved shell from inside and are pulled in slightly, so no line reaches or passes a face. Labels have no connecting lines.
+- **Hover ray.** While a skill is hovered, a hairline fades in from the centre toward that skill's on-screen direction and stops just inside the shell. It is transparent at the centre and brightest at the face. Its end point is re-found every frame by raycasting the rotated, curved shell from inside, so it never leaves the object. It fades out when the hover ends. Labels have no connecting lines.
 - **Containment.** A damped spring (`stiffness`, `damping`) moves the core, and it is hard-clamped to `maxOffset`. At startup that clamp is reduced to the prism's real inner clearance (the distance from the centre to the nearest plane) minus the core radius and a margin, so the core can never touch a plane, whatever the orientation.
 - **Glass.** Back faces render first, then the opaque core, then the front faces, contours and the additive halo. The glass shader is strictly neutral: every colour term is white, so planes differ only by opacity, Fresnel, white reflections, light from the core and a faint border. There is no post-processing and no transmission pass.
-- **Contours.** `LineSegments2` keeps lines at a constant 1.25 CSS px, with a faint wider pass under them for the drawing's soft bleed. Rear edges are dimmed slightly, based on which faces point toward the camera.
+- **Contours.** `LineSegments2` keeps lines at a constant 0.8 CSS px, with a faint wider pass under them for the drawing's soft bleed. Rear edges are dimmed slightly, based on which faces point toward the camera.
 
 ## Integrating later
 

@@ -6,8 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 /*
  * The Dust Release prism: a custom hexahedron built from eight traced corners
  * (see CONFIG.shell.vertices). Neutral white translucent planes that bulge
- * very slightly outward (like the faces of a die), thin white contours, and
- * optional hairlines from the centre to the inner surface.
+ * slightly outward (like the faces of a die) and thin white contours.
  *
  * Corner i: bit 0 → right, bit 1 → top, bit 2 → front.
  */
@@ -20,7 +19,6 @@ export const FACES = {
   front: [4, 5, 7, 6],
 };
 const FACE_LIST = Object.values(FACES);
-const FACE_INDEX = Object.fromEntries(Object.keys(FACES).map((k, i) => [k, i]));
 
 const EDGES = [];
 for (let i = 0; i < 8; i++) {
@@ -220,43 +218,13 @@ export class DustPrism extends THREE.Group {
     this._facing = new Float32Array(6);
   }
 
-  /**
-   * Hairlines from the centre to the inner surface. Each target is either a
-   * face name (line ends at that face's centre) or a direction vector (line
-   * ends where that ray meets the shell). End points are found by raycasting
-   * the actual curved geometry from the inside, then pulled in by `inset`,
-   * so a line can never pass through or beyond a plane.
-   */
-  addInnerLines(targets, { width, opacity, inset }) {
-    const probe = new THREE.Mesh(this.frontFaces.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
-    probe.updateMatrixWorld(true);
-    const ray = new THREE.Raycaster();
-    const origin = new THREE.Vector3();
-    const pts = [];
-    this.innerLineEnds = [];
-    for (const t of targets) {
-      const dir = typeof t === 'string' ? this.faceCentroids[FACE_INDEX[t]].clone().normalize() : t.clone().normalize();
-      ray.set(origin, dir);
-      const hit = ray.intersectObject(probe, false)[0];
-      if (!hit) continue;
-      const end = dir.clone().multiplyScalar(hit.distance - inset);
-      pts.push(0, 0, 0, end.x, end.y, end.z);
-      this.innerLineEnds.push({ end, surface: hit.distance });
-    }
-    probe.material.dispose();
-    this.innerLines = makeLines(pts, { width, opacity });
-    this.innerLines.renderOrder = 2;
-    this.innerLines.material.depthTest = true; // hidden behind the opaque core
-    this.add(this.innerLines);
-  }
-
   /** Distance from the centre to the nearest (flat) plane: how far the core may travel. */
   innerClearance() {
     return Math.min(...this.faceNormals.map((n, i) => Math.abs(n.dot(this.faceCentroids[i]))));
   }
 
   setResolution(w, h) {
-    for (const l of [this.edges, this.edgeGlow, this.innerLines]) l?.material.resolution.set(w, h);
+    for (const l of [this.edges, this.edgeGlow]) l.material.resolution.set(w, h);
   }
 
   /** Rear contours sit a touch dimmer than front ones, which keeps depth readable. */
@@ -282,8 +250,7 @@ export class DustPrism extends THREE.Group {
     this.backFaces.geometry.dispose();
     this.backFaces.material.dispose();
     this.frontFaces.material.dispose();
-    for (const l of [this.edges, this.edgeGlow, this.innerLines]) {
-      if (!l) continue;
+    for (const l of [this.edges, this.edgeGlow]) {
       l.geometry.dispose();
       l.material.dispose();
     }

@@ -39,9 +39,9 @@ export const CONFIG = {
     ],
     scale: 1.0,
 
-    // Faces bulge outward by this much at their centre (world units, ~2.5% of
-    // an edge), falling to zero at every edge so contours stay straight.
-    bulge: 0.032,
+    // Faces bulge outward by this much at their centre (world units, ~6% of
+    // an edge, like a die), falling to zero at every edge so contours stay straight.
+    bulge: 0.075,
     segments: 18,             // grid resolution per face
 
     // Neutral white glass: planes differ by opacity and light only, no tint.
@@ -52,9 +52,9 @@ export const CONFIG = {
     coreLight: 0.9,           // light transmitted from the core onto the planes
 
     edgeColor: '#ffffff',
-    edgeWidth: 1.25,          // CSS px, crisp contour
+    edgeWidth: 0.8,           // CSS px, fine contour
     edgeOpacity: 0.95,
-    edgeGlow: { width: 4, opacity: 0.07 }, // soft bleed around each contour
+    edgeGlow: { width: 3, opacity: 0.03 }, // faint bleed around each contour
     backEdgeLevel: 0.8,       // the drawing keeps rear edges almost as bright
   },
 
@@ -83,19 +83,18 @@ export const CONFIG = {
     ease: 2.6,            // lower = lazier follow
   },
 
-  // Hairlines from the centre to the inner surface, one per skill. They live
-  // inside the prism, rotate with it and stop just short of the planes.
-  innerLines: {
-    show: true,
+  // Hover ray: a hairline from the centre to the inner surface toward the
+  // hovered skill, fading from transparent (centre) to bright (face).
+  rays: {
     width: 1,
-    opacity: 0.22,
-    inset: 0.012,
+    opacity: 0.75,        // peak brightness at the face
+    fade: 7,              // fade in/out speed
+    inset: 0.01,          // stops just inside the surface
   },
 
   skills: [
     {
       id: 'product',
-      innerLine: 'top',      // hairline to this face's centre
       label: 'PRODUCT DEVELOPMENT',
       direction: [0, 1, 0],
       distance: 2.3,
@@ -104,7 +103,6 @@ export const CONFIG = {
     },
     {
       id: 'complex',
-      innerLine: 'bottom',      // hairline to this face's centre
       label: 'COMPLEX WEB APPLICATIONS',
       direction: [0, -1, 0],
       distance: 2.3,
@@ -113,7 +111,6 @@ export const CONFIG = {
     },
     {
       id: 'experimental',
-      innerLine: 'left',      // hairline to this face's centre
       label: 'EXPERIMENTAL TECHNOLOGIES',
       direction: [-1, 0, 0],
       distance: 2.3,
@@ -122,7 +119,6 @@ export const CONFIG = {
     },
     {
       id: 'fullstack',
-      innerLine: 'right',      // hairline to this face's centre
       label: 'FULL-STACK DEVELOPMENT',
       direction: [1, 0, 0],
       distance: 2.3,

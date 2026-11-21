@@ -5,6 +5,7 @@ import { SkillLabels } from './SkillLabels.js';
 import { RotationController } from './RotationController.js';
 import { ParallaxController } from './ParallaxController.js';
 import { InfoPanel } from './InfoPanel.js';
+import { SkillRays } from './SkillRays.js';
 
 /**
  * Self-contained scene. Mount into any element:
@@ -15,8 +16,9 @@ import { InfoPanel } from './InfoPanel.js';
  *   └─ rig                position only: parallax drift
  *      ├─ tilt            rotation only: parallax tilt (cursor)
  *      │  └─ frame        rotation only: drag × idle sway
- *      │     └─ prism     traced shell + inner hairlines
- *      └─ core            NOT rotated: screen-aligned spring offset
+ *      │     └─ prism     traced shell (slightly convex faces)
+ *      ├─ core            NOT rotated: screen-aligned spring offset
+ *      └─ rays            NOT rotated: hover hairline toward the skill
  *
  * Because the core is a sibling of the rotating groups rather than their child,
  * its skill-directed movement is always screen-relative, while the shared rig
@@ -56,10 +58,6 @@ export class DustReleaseScene {
     };
     this.prism = new DustPrism(config.shell, this.shared);
     this.frame.add(this.prism);
-    if (config.innerLines.show) {
-      const targets = config.skills.map((s) => s.innerLine ?? new THREE.Vector3(...s.direction));
-      this.prism.addInnerLines(targets, config.innerLines);
-    }
     // Containment: the core is a sphere around the shared centre, so if
     // radius + travel stays below the nearest plane it is inside at any rotation.
     this.core.maxOffset = Math.min(config.core.maxOffset, this.prism.innerClearance() - config.core.radius - 0.08);
@@ -70,6 +68,9 @@ export class DustReleaseScene {
     this.screenDirections = new Map(
       config.skills.map((s) => [s.id, new THREE.Vector3(s.direction[0], s.direction[1], 0).normalize()])
     );
+    // Hover rays share the core's screen-aligned space.
+    this.rays = new SkillRays(this.screenDirections, this.prism, config.rays);
+    this.rig.add(this.rays);
 
     // Interaction
     this.rotation = new RotationController(container, config.rotation);
@@ -148,6 +149,7 @@ export class DustReleaseScene {
     this.camera.updateMatrixWorld();
 
     this.prism.setResolution(w, h);
+    this.rays.setResolution(w, h);
     this.labels.measure();
     this.labels.layout(this.camera, this.restFrame, w, h);
   }
@@ -183,6 +185,7 @@ export class DustReleaseScene {
     this.core.getWorldPosition(this.shared.uCore.value);
     this.core.faceCamera(this.camera);
     this.prism.update(this.camera);
+    this.rays.update(dt, this.state.hovered);
 
     this.renderer.render(this.scene, this.camera);
   }
@@ -206,6 +209,7 @@ export class DustReleaseScene {
     this.parallax.dispose();
     this.labels.dispose();
     this.panel.dispose();
+    this.rays.dispose();
     this.prism.dispose();
     this.core.dispose();
     this.renderer.dispose();

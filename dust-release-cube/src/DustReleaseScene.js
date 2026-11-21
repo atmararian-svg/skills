@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { DustCube } from './DustCube.js';
+import { DustPrism } from './DustPrism.js';
 import { EnergyCore } from './EnergyCore.js';
-import { SkillAxes } from './SkillAxes.js';
 import { SkillLabels } from './SkillLabels.js';
 import { RotationController } from './RotationController.js';
 import { InfoPanel } from './InfoPanel.js';
@@ -13,9 +12,10 @@ import { InfoPanel } from './InfoPanel.js';
  * Hierarchy:
  *   scene
  *   └─ frame (skill frame — user rotation × idle sway)
- *      ├─ cube  (posed shell)
- *      ├─ core  (spring-driven, local coords)
- *      └─ axes  (hairlines to label anchors)
+ *      ├─ prism (traced Dust Release shell)
+ *      └─ core  (spring-driven, local coords; rests at the centroid)
+ *
+ * Labels and their hairlines are a separate 2D overlay (SkillLabels).
  */
 export class DustReleaseScene {
   constructor(container, config, { onSelect } = {}) {
@@ -43,9 +43,11 @@ export class DustReleaseScene {
       uCore: { value: new THREE.Vector3() },
       uCoreIntensity: this.core.uIntensity,
     };
-    this.cube = new DustCube(config.cube, this.shared);
-    this.axes = new SkillAxes(config.skills, config.axes);
-    this.frame.add(this.cube, this.axes, this.core);
+    this.prism = new DustPrism(config.shell, this.shared);
+    this.frame.add(this.prism, this.core);
+    // Containment: core radius + travel always stays clear of every plane.
+    this.core.maxOffset = Math.min(config.core.maxOffset, this.prism.innerClearance() - config.core.radius - 0.08);
+    this.restFrame = new THREE.Object3D(); // resting orientation, for the fixed label layout
 
     this.directions = new Map(config.skills.map((s) => [s.id, new THREE.Vector3(...s.direction).normalize()]));
 
@@ -54,7 +56,7 @@ export class DustReleaseScene {
     this.rotation.onDragChange = (dragging) => {
       if (dragging) this.setHovered(null);
     };
-    this.labels = new SkillLabels(container, config.skills, {
+    this.labels = new SkillLabels(container, config.skills, config.labels, {
       onHover: (id, leaving) => {
         if (id === null && leaving && this.state.hovered !== leaving) return;
         this.setHovered(id);
@@ -72,12 +74,12 @@ export class DustReleaseScene {
     this._resizeObserver = new ResizeObserver(() => this.resize());
     this._resizeObserver.observe(container);
     this.resize();
+    document.fonts?.ready.then(() => this.resize()); // re-measure labels once web fonts land
 
     this._prevQ = new THREE.Quaternion();
     this._delta = new THREE.Quaternion();
     this._sway = new THREE.Quaternion();
     this._euler = new THREE.Euler();
-    this._lit = new Set();
     this._clock = new THREE.Clock();
     this._time = 0;
     this._tick = this._tick.bind(this);
@@ -108,7 +110,6 @@ export class DustReleaseScene {
     const targetId = hovered ?? active;
     this.core.setTargetDirection(targetId ? this.directions.get(targetId) : null);
     this.labels.setState(this.state);
-    this._lit = new Set([hovered, active].filter(Boolean));
   }
 
   // ── Layout ─────────────────────────────────────────────
@@ -127,10 +128,20 @@ export class DustReleaseScene {
     const ppu = Math.min(w * fw, h * fh); // pixels per world unit
     this.camera.position.set(0, 0, h / (2 * ppu * Math.tan(THREE.MathUtils.degToRad(c.fov / 2))));
     this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
 
-    this.cube.setResolution(w, h);
-    this.axes.setResolution(w, h);
+    this.prism.setResolution(w, h);
     this.labels.measure();
+
+    // Hairlines start just outside the object's largest possible screen radius.
+    const R = this.prism.outerRadius();
+    const D = this.camera.position.z;
+    this.lineStart = R * ppu * (D / (D - R)) + this.config.labels.lineGap;
+    if (!this.labels.follows) this.layoutLabels(this.restFrame);
+  }
+
+  layoutLabels(frame) {
+    this.labels.layout(this.camera, frame, this.width, this.height, this.lineStart);
   }
 
   // ── Loop ───────────────────────────────────────────────
@@ -163,9 +174,8 @@ export class DustReleaseScene {
     this.frame.updateMatrixWorld(true);
     this.core.getWorldPosition(this.shared.uCore.value);
     this.core.faceCamera(this.camera);
-    this.cube.update(this.camera);
-    this.axes.update(dt, this._lit);
-    this.labels.update(this.camera, this.frame, this.width, this.height);
+    this.prism.update(this.camera);
+    if (this.labels.follows) this.layoutLabels(this.frame);
 
     this.renderer.render(this.scene, this.camera);
   }
@@ -188,9 +198,8 @@ export class DustReleaseScene {
     this.rotation.dispose();
     this.labels.dispose();
     this.panel.dispose();
-    this.cube.dispose();
+    this.prism.dispose();
     this.core.dispose();
-    this.axes.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

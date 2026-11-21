@@ -44,7 +44,7 @@ const haloFragment = /* glsl */ `
     float r = length(vUv - 0.5) * uSize;
     float x = max(r - uRadius, 0.0);
     // Tight corona + soft scatter + faint wide falloff.
-    float g = 0.85 * exp(-x / 0.04) + 0.4 * exp(-x / 0.16) + 0.12 * exp(-x / 0.45);
+    float g = 0.8 * exp(-x / 0.03) + 0.3 * exp(-x / 0.1) + 0.08 * exp(-x / 0.28);
     g *= 1.0 - smoothstep(uSize * 0.36, uSize * 0.5, r);
     vec3 col = mix(vec3(1.0, 0.84, 0.87), vec3(1.0), clamp(g * 1.6, 0.0, 1.0));
     gl_FragColor = vec4(col * g * uIntensity, 1.0);
@@ -89,6 +89,7 @@ export class EnergyCore extends THREE.Group {
     this.add(this.sphere, this.halo);
 
     // Spring state, in the parent's (skill frame) coordinates.
+    this.maxOffset = cfg.maxOffset;
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
     this.target = new THREE.Vector3();
@@ -100,7 +101,7 @@ export class EnergyCore extends THREE.Group {
   /** Direction in the skill frame (or null for centre). */
   setTargetDirection(dir) {
     if (!dir) this.target.set(0, 0, 0);
-    else this.target.copy(dir).normalize().multiplyScalar(this.cfg.travel);
+    else this.target.copy(dir).normalize().multiplyScalar(Math.min(this.cfg.travel, this.maxOffset * 0.8));
   }
 
   /**
@@ -115,7 +116,8 @@ export class EnergyCore extends THREE.Group {
   }
 
   step(dt) {
-    const { stiffness: k, damping: c, maxOffset } = this.cfg;
+    const { stiffness: k, damping: c } = this.cfg;
+    const maxOffset = this.maxOffset;
     const n = 3;
     const h = dt / n;
     for (let i = 0; i < n; i++) {

@@ -70,6 +70,23 @@ body {
   outline-offset: -4px;
 }
 
+.label-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.label-lines line {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transition: stroke 0.3s ease;
+}
+.label-lines line.is-lit {
+  stroke: var(--line-lit);
+}
+
 /* ── Info panel ─────────────────────────────────────── */
 
 .panel {
